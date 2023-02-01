@@ -1,0 +1,48 @@
+context originate {
+
+    h => {
+        NoOp(CHANNELS originate hang = ${CHANNEL} :: ${uniqueid}>${CALLERID(num)}>${EXTEN});
+        Set(CDR(pbxserver)=${PBXSERVER});
+        &Event(hang,${CONTEXT});
+        NoOp(maxx: originate h: call from ${CALLERID(num)} to ${EXTEN} is originated, CDR channel ${CHANNEL} start ${CDR(start)}  answer ${CDR(answer)});
+        Hangup();
+    }
+
+    i => {
+        NoOp(CHANNELS originate invalid = ${CHANNEL} :: ${uniqueid}>${CALLERID(num)}>${EXTEN});
+        Set(CDR(pbxserver)=${PBXSERVER});
+        &Event(hang,${CONTEXT});
+        NoOp(maxx: originate i: call from ${CALLERID(num)} to ${EXTEN} is originated, CDR channel ${CHANNEL} start ${CDR(start)}  answer ${CDR(answer)});
+        Hangup();
+    }
+
+    _. => {
+        NoOp(sip channel name ${CHANNEL(name)} callerid(num) ${CALLERID(num)} exten ${EXTEN});
+
+
+        Set(CALLERID(num)=${CUT(EXTEN,+,1)});
+
+        NoOp(maxx: callerid after correction is ${CALLERID(all)});
+//        __n1 = ${CALLERID(num)};
+        Set(__BIND=${CUT(EXTEN,+,1)});
+        Set(__dnid=${CUT(EXTEN,+,2)});
+        NoOp(maxx: normalized originate channel name ${CHANNEL(name)} callerid(num) ${CALLERID(num)} exten ${EXTEN} BIND ${BIND});
+        &call-entry(${CONTEXT});
+       if ("${leg1}"="") Set(__leg1=${CALLERID(num)});
+       if ("${leg2}"="") Set(__leg2=${n1});
+
+        Set(CHANNEL(accountcode)=${leg2});
+        Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>ROOT);
+        Set(CHANNEL(amaflags)=billing);
+        Set(CDR(pbxserver)=${PBXSERVER});
+
+        goto outgoing-call|s|1;
+//        Dial(LOCAL/${dnid}@iax); //в надежде на форк cdr...
+
+    } //  _. => {
+
+} // context originate
+
+
+
+

@@ -1,0 +1,176 @@
+// Assemble MixMonitor location and start recording
+macro SetMonitor(MonitorTo,bind,Ext,Peer,Dir) {
+ catch h { // whitout a catch, dialplan stops execution on hangup !!!
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  hang=1;
+  return;
+ }
+
+//    NoOp(maxx: begin of monitorto x-rec ${CDR(x-record)});
+//    NoOp(maxx: begin of monitorto  ${mfile});
+
+// DumpChan();
+
+
+ if ("${MonitorTo}"="-"|"${MonitorTo}"="0") return;
+ if ("${MonitorTo}"="+"|"${MonitorTo}"="1") Set(MonitorTo=${ODBC_CONST(MonitorTo,${bind})});
+
+ if ("${MonitorTo}"="I") { // Ingress only
+  if ("${incoming}"!="1") return;
+  Set(MonitorTo=${ODBC_CONST(MonitorTo,${bind})});
+ }
+
+ if ("${MonitorTo}"="O"|"${MonitorTo}"="E") { // Egress only
+  if ("${incoming}"="1") return;
+  Set(MonitorTo=${ODBC_CONST(MonitorTo,${bind})});
+ }
+
+ if ("${MonitorTo}"!="" && "${Dir}"="in" && ${originated}=1 && "${from}"="originate") {
+ NoOp(maxx:MonitorTo ${MonitorTo} Dir ${Dir} originated ${originated} from ${from}     первая нога оригинированного звонка - cdr не заполняем, мфайл не устанавливаем);
+ return;
+ }
+
+// if ("${MonitorTo}"!="" && "${Dir}"="out" && ${originated}=1 && "${from}"="iax") {
+// NoOp(maxx:MonitorTo ${MonitorTo} Dir ${Dir} originated ${originated} from ${from}     вторая нога оригинированного звонка - cdr заполняем, мфайл устанавливаем, ваще - всё пишем!!!);
+// }
+
+
+
+
+  if ("${mfile}"="/var/spool/asterisk/monitor/${bind}/${record}") return; // Recording already started
+
+
+
+if ("${MonitorTo:-1}"="/") { // Old-style dongle. Restrict location to /monitor/${BIND}/
+
+
+//   Set(LOCAL(record)=${Ext}/${STRFTIME(${EPOCH},,%Y%m%d-%H%M%S)}-${FILTER(0-9,${Peer})}-${Dir}); 
+
+   if ("${DCID}"="") {
+        Set(LOCAL(mroutes)=${ODBC_GET_CALL_ROUTES("",${Ext},3,"",${bind},"")});
+        Set(HASH(mroute)=${ODBC_FETCH(${mroutes})});
+        Set(LOCAL(mcid)=${HASH(mroute,CID)});
+   } else {
+        Set(LOCAL(mcid)=${DCID});
+   }
+   if ("${Dir}"="in" && "${from}"!="sip") Set(LOCAL(mcid)=${leg2});
+//   Set(LOCAL(record)=${STRFTIME(${EPOCH},,%Y%m%d_%H%M%S)}-${FILTER(0-9,${Peer})}-${Dir}-${Ext}-${bind}-${uniqueid});   // новый формат имени файла 28.08.2019
+
+//   Set(LOCAL(record)=${STRFTIME(${EPOCH},,%Y%m%d_%H%M%S)}-${FILTER(0-9,${Peer})}-${Dir}-${mcid}-${Ext}-${bind}-${uniqueid});
+   Set(LOCAL(record)=${STRFTIME(${EPOCH},,%Y%m%d_%H%M%S)}-${FILTER(0-9,${Peer})}-${Dir}-${mcid}-${Ext}-${bind}-${PBXSERVER}_${uniqueid});
+
+  } else {
+   Set(LOCAL(record)=${EVAL(${MonitorTo})});
+    NoOp(ai: record = ${record});
+   // cid,dnid,direction
+   Set(LOCAL(record)=${STRREPLACE(record,%EXT,${Ext})});
+   Set(LOCAL(record)=${STRREPLACE(record,%PEER,${FILTER(0-9,${Peer})})});
+   Set(LOCAL(record)=${STRREPLACE(record,%DIR,${Dir})});
+   // date-time
+   Set(LOCAL(record)=${STRREPLACE(record,%Y,${STRFTIME(${EPOCH},,%Y)})});
+   Set(LOCAL(record)=${STRREPLACE(record,%m,${STRFTIME(${EPOCH},,%m)})});
+   Set(LOCAL(record)=${STRREPLACE(record,%d,${STRFTIME(${EPOCH},,%d)})});
+   Set(LOCAL(record)=${STRREPLACE(record,%H,${STRFTIME(${EPOCH},,%H)})});
+   Set(LOCAL(record)=${STRREPLACE(record,%M,${STRFTIME(${EPOCH},,%M)})});
+   Set(LOCAL(record)=${STRREPLACE(record,%S,${STRFTIME(${EPOCH},,%S)})}); // It may steal 59s
+  }
+ 
+// Set(MONITOR_EXEC=/usr/bin/sox -M);
+
+  Set(LOCAL(year)=${STRFTIME(${EPOCH},,%Y)});
+  Set(LOCAL(day)=${STRFTIME(${EPOCH},,%d)});
+  Set(LOCAL(month)=${STRFTIME(${EPOCH},,%m)});
+  Log(DEBUG, year - ${year} month - ${month} day - ${day});
+
+
+// NoOp(Diim: mfile - ${mfile}----- RecFind mc ----${MASTER_CHANNEL(LOCAL(mfile))} );
+ if ("${mfile}"=!"") return; // Recording already started , just check file name
+ if ("${CUT(mfile,_,${FIELDQTY(mfile,_)})}"="${uniqueid}")  return;    // Recording already started , check linkedID
+
+
+
+ Set(__mfile=/var/spool/asterisk/monitor/${bind}/${year}/${month}/${day}/${record});
+ Set(LOCAL(NEXTACTION)=${CUT(HASH(res,Action),\,,1)});
+ NoOp(maxx: details of monitor: DATA=${DATA} cdr(x-record="${CDR(x-record)}) ACTION=${CUT(HASH(res,Action),\,,1)} nextaction ${NEXTACTION} context ${context} iax-in ${iax-in} dir ${Dir});
+
+
+// NoOp(maxx: begin of routing after prepare ${mfile});
+
+
+ if  ("${CDR(x-record)}"="") {
+  NoOp(maxx: monitor: common case no x-record value);
+    if ("${iax-in}"="1") {
+    NoOp(maxx: monitor: external incoming call, setting x-record);
+    Set(CDR(x-record)=${record}.mp3);
+    CELGenUserEvent(xrecord,${CDR(x-record)});
+    }
+    if ("${extenmask}"!="" && "${Dir}"="in") {
+    NoOp(maxx: monitor: internal incoming call, will NOT setting x-record);
+    }
+    if ("${extenmask}"!="" && "${Dir}"="out") {
+    NoOp(maxx: monitor: internal outgiong call, setting x-record);
+    Set(CDR(x-record)=${record}.mp3);
+    CELGenUserEvent(xrecord,${CDR(x-record)});
+    }
+
+    if ("${MonitorTo}"!="" && "${Dir}"="out" && ${originated}=1 && "${from}"="iax") {
+    NoOp(maxx: monitor: second leg of the originated call, setting x-record, mfile ${mfile});
+    Set(CDR(x-record)=${record}.mp3);
+    CELGenUserEvent(xrecord,${CDR(x-record)});
+    }
+
+
+ }
+
+// NoOp(maxx: after test of monitorto x-rec ${CDR(x-record)});
+
+Set(LOCAL(CID1)=${FILTER(0-9,${Peer})});
+Set(LOCAL(RDNIS)=${CALLERID(rdnis)});
+
+//Log(DEBUG, BIND - ${BIND}  DID - ${mcid} CID- ${CID1}  RDNIS - ${RDNIS});
+
+if  ("${BIND}" = ""){
+    Set(LOCAL(BIND)="BIND");
+    }
+
+if  ("${mcid}" = ""){
+    Set(LOCAL(mcid)="DID");
+    }
+
+if  ("${CID1}" = ""){
+    Set(LOCAL(CID1)="CID");
+    }
+
+
+if  ("${RDNIS}" = ""){
+    Set(LOCAL(RDNIS)="RDNIS");
+    }
+
+Log(DEBUG, BIND - ${BIND}  DID - ${mcid} CID- ${CID1}  rdns - ${RDNIS});
+
+
+
+Set(LOCAL(cdrfile)=/var/spool/asterisk/monitor_tel_rec/${bind}/${year}/${month}/${day}/${record}.mp3);
+
+
+//MixMonitor(,Sr(${mfile}_r.wav)t(${mfile}_t.wav),sox -M ${mfile}_r.wav ${mfile}_t.wav ${mfile}.wav && lame -b 32 -m d ${mfile}.wav ${mfile}.mp3 && rm ${mfile}*.wav && cp ${mfile}.mp3 ${cdrfile} );
+MixMonitor(,Sr(${mfile}_r.wav)t(${mfile}_t.wav),sox -M ${mfile}_r.wav ${mfile}_t.wav ${mfile}.wav && lame -b 32 -m d ${mfile}.wav ${mfile}.mp3 && /usr/bin/perl /usr/local/sbin/mp3_upload2.pl ${mfile} ${BIND} ${RDNIS} ${mcid} ${CID1});
+
+Log(DEBUG, cdrfile - ${cdrfile});
+
+//System(cp ${mfile}.mp3 ${cdrfile});
+//System(test -e ${cdrfile});
+//if ("${SYSTEMSTATUS}" = "SUCCESS") {
+    Log(DEBUG, file /var/spool/asterisk/monitor_tel_rec/${bind}/${year}/${month}/${day}/${record}.mp3 EXSIS, DEL HIM!);
+//    System(rm -f "${mfile}".mp3);
+//}
+
+NoOp(Diim: mfile - ${mfile}----- RecFind );
+
+//NoOp(maxx: /usr/bin/sox -M "${mlfile}" "${mrfile}" "${mfile}.mp3");
+//System(/usr/bin/sox -M "${mlfile}" "${mrfile}" "${mfile}-s.mp3");
+// && /bin/rm -f ${mlfile} && /bin/rm -f ${mrfile});
+//System(/usr/bin/lame -m m --cbr -b 32 "${mfile}.wav" "${mfile}.mp3" && /bin/rm -f "${mfile}.wav");
+ return;
+} // macro MonitorTo((MonitorTo,bind,A,B,D)

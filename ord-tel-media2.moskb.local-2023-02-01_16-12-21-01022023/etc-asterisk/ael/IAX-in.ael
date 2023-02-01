@@ -1,0 +1,100 @@
+// DialPlan processing contexts
+// !!! OLD routing scheme: incoming call from IAX
+context iax-in {
+
+
+// catch all into new context with the purpose to enable special extensions
+ h => {
+  NoOp(QOS = "${RTPAUDIOQOS}");
+  NoOp(CHANNELS iax-in = ${CHANNEL} ${n1}>>${n2});
+//  StopMonitor();
+  Set(GLOBAL(transfd)="");
+  NoOp(maxx: адрес файла для записи ${mfile});
+//  System(/usr/local/sbin/wav2mp3 ${mfile});
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup();
+ }
+ _. => {
+  NoOp(maxx iax-in begin: callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} peer ${PEER} bind ${BIND} rdnis ${CALLERID(RDNIS)} EXTEN  ${EXTEN});
+
+    //DumpChan();
+
+  //Set(__mfile=); //for MonitorTo use
+
+
+if ("${BIND}"!="") {
+
+    if ("${CALLERID(RDNIS)}"="${EXTEN}" & "${CALLERID(RDNIS)}"="${CALLERID(num)}" & "${leg1}"!="${CALLERID(num)}") {
+      NoOp(maxx iax-in SIC redirect rdnis ${CALLERID(RDNIS)} calleridnum ${CALLERID(num)} exten ${EXTEN} are the same!!!  correct A is leg1 ${leg1} cid ${cid});
+      __n1=${leg1};
+      __n2=${EXTEN};
+      Set(CALLERID(RDNIS)=);
+      Set(CALLERID(num)=${leg1});
+      NoOp(maxx iax-in SIC redirect origin peer is ${BIND}+${cid});
+      Set(HASH(reax)=${ODBC_SIP_PEER(${BIND}+${cid})});
+      if ("${HASH(reax,callerid)}"!="") {
+         Set(CALLERID(all)=${HASH(reax,callerid)});
+      }
+    } //iax-in SIC redirect
+
+    NoOp(maxx iax-in SIC redirect refined: callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} EXTEN ${EXTEN} rdnis ${CALLERID(RDNIS)});
+
+} else {
+
+    __n1 = ${CALLERID(num)};
+
+} // if ("${BIND}"!="")
+
+
+
+
+
+  set(__BIND=);
+  NoOp(CHANNELS iax-in = ${CHANNEL} ${n1}>>${n2});
+  Set(__incoming=1);
+  Set(chname=${CHANNEL}-${DNID});
+  Set(__iaxinoriginid=${CHANNEL(UniqueID)});
+  Set(__iax-in=1);
+//  Set(DATA=${DATA},CONTEXT=iax-in;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)});
+
+    if ("${CUT(HASH(res,Action),\,,1)}"="exten") {
+//        Set(DATA=${DATA},CONTEXT=iax-in;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${HASH(ext,Exten)};Guid=${HASH(ext,Guid)});
+        Set(DATA=${DATA},CONTEXT=iax-in;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${HASH(ext,Exten)});
+    } else {
+        Set(DATA=${DATA},CONTEXT=iax-in;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)});
+    }
+
+
+//  NoOp(maxx data in iax-in: DATA ${DATA});
+  &call-entry(iax-in);
+
+  NoOp(maxx iax-in: number B ${number}  number A ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)});
+
+
+
+  // Dumb hack for I.Kuprijanov !!!NO!!! 8123304040 etc !!!
+  if ("${CALLERID(num):0:1}"="+") Set(CALLERID(num)=${CALLERID(num):1});
+  if ("${CALLERID(num):0:1}"="+") Set(CALLERID(ani)=${CALLERID(num):1});
+
+  // Leg definitions must be stored overall call processing!
+  if ("${leg1}"="") Set(__leg1=${CALLERID(num)});
+  if ("${leg2}"="") Set(__leg2=${CALLERID(dnid)}); // In most cases, must be ${EXTEN} in entry context
+  if ("${leg2}"="") Set(__leg2=${EXTEN}); // In most cases, must be ${EXTEN} in entry context
+  if ("${uniqueid}"="") Set(__uniqueid=${CDR(uniqueid)});
+
+  Set(CHANNEL(accountcode)=${leg2});
+  Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>ROOT);
+  Set(CHANNEL(amaflags)=billing);
+//  Set(CDR(pbxserver)=integra.obit.ru);
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+//  NoOp(maxx: current instance is ${SHELL(hostname)});
+
+  Set(__dnid=${EXTEN});
+  if (${incoming}=1) {
+   goto incoming-call|s|1;
+  } else goto outgoing-call|s|1;
+ }
+} // context iax-in

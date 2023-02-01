@@ -1,0 +1,57 @@
+// Say phone in human-acceptable form
+macro SayPhone(number) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ if (${REGEX("^[0-9]+$" ${number})}=0) {
+  SayDigits(${number});
+  return;
+ }
+
+ Set(prefix-international=${ODBC_CONST(prefix-international)});
+ if ("${prefix-international}"="") Set(prefix-international=810);
+ Set(prefix-country=${ODBC_CONST(prefix-country)});
+ if ("${prefix-country}"="") Set(prefix-country=8);
+
+ l=${LEN(${number})};
+ pos=0;
+
+ if (${number:${pos}:1}=${prefix-country}) {
+  SayNumber(${prefix-country});
+  Wait(1);
+  pos = ${LEN(${prefix-country})};
+
+  if (${number:0:${LEN(${prefix-international})}}=${prefix-international}) {
+   SayNumber(${number:${pos}:${LEN(${prefix-international:${pos}})}});
+   Wait(1);
+   pos = ${LEN(${prefix-international})};
+  }
+ }
+
+ while (${pos} < ${l}) {
+  if (${number:${pos}:1}=0) {
+   SayDigits(0);
+   pos = ${pos}+1;
+  } else {
+   if (${LEN(${number:${pos}:99})}<4) {
+    SayNumber(${number:${pos}:${l}});
+    Wait(1);
+   pos = ${l};
+   } else {
+    if (${LEN(${number:${pos}:99})}=4) {
+     SayNumber(${number:${pos}:2});
+     Wait(1);
+     pos = ${pos}+2;
+    } else
+    {
+     SayNumber(${number:${pos}:3});
+     Wait(1);
+     pos = ${pos}+3;
+    }
+   }
+  }
+ }
+ return;
+} // macro SayPhone(number)

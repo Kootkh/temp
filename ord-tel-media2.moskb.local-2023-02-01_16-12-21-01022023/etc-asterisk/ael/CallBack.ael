@@ -1,0 +1,101 @@
+// !!! OLD routing schema: call-back implementation
+
+macro call-back(res) { // Do CallBack as specified in ${res}
+// NoOp(CallBack);
+ Set(HASH(res)=${ODBC_CALLBACK(${dnid},${cid})});
+
+ Set(cb=/var/spool/asterisk/tmp/${HASH(res,CID)}-${HASH(res,Exten)}.call);
+ System(/bin/echo "Set: __BIND=${HASH(res,BIND)}" >> ${cb});
+ System(/bin/echo "Set: __TAG=${CHANNEL(peername)}" >> ${cb});
+ System(/bin/echo "Set: _MOH=dial" >> ${cb});
+ System(/bin/echo "Set: DATA=,CONTEXT=call-back^CID=${cid}^DID=${dnid}" >> ${cb});
+ System(/bin/echo "Set: x_cid=${cid}" >> ${cb});
+ System(/bin/echo "Set: x_did=${dnid}" >> ${cb});
+
+ System(/bin/echo "CallerID: ${HASH(res,CallerID)}" >> ${cb});
+ System(/bin/echo "Channel: ${HASH(res,Channel)}" >> ${cb});
+ System(/bin/echo "WaitTime: ${HASH(res,WaitTime)}" >> ${cb});
+ System(/bin/echo "Context: ${HASH(res,Context)}" >> ${cb});
+ System(/bin/echo "Extension: ${HASH(res,Extension)}" >> ${cb});
+ System(/bin/echo "Priority: ${HASH(res,Priority)}" >> ${cb});
+ System(/bin/echo "AlwaysDelete: ${HASH(res,AlwaysDelete)}" >> ${cb});
+ System(/bin/echo "Archive: ${HASH(res,Archive)}" >> ${cb});
+
+ Progress();
+ Set(CHANNEL(language)=${DEFAULT_LANG});
+ Playback(beep,noanswer);
+// Answer;
+ Set(PRI_CAUSE=16); // Set "Normal" in place of "Rejected"
+ Hangup();
+
+ catch h {
+  hang=1;
+  t=${HASH(res,Timeout)};
+  if ("${t}"="") t=3;
+  System(\(/bin/sleep ${t}s \; /bin/mv ${cb} /var/spool/asterisk/outgoing/\)&); // Remember that simple Wait() will not work here!!!
+//  System(/bin/mv ${cb} /var/spool/asterisk/outgoing/);
+ }
+ return;
+} // macro call-back(res)
+
+context callback {
+ h => {
+  return;
+ }
+
+ _. => {
+  Answer();
+  Set(__cid=${EXTEN});
+  goto do_callback,s,1;
+ }
+}
+
+context do_callback { // Calls from here must be always expected as outgoing!!!
+// Wait for extension to dial
+ s => {
+  Set(TIMEOUT(digit)=3);
+  Set(CHANNEL(language)=${DEFAULT_LANG});
+
+  we:
+  WaitExten(60,m);
+//  number=;
+//  Set(VOLUME(TX)=6);
+//  Set(VOLUME(RX)=3);
+//  Read(number,dial,20,i,60,3);
+//  if ("${number}"!="") goto ${number}|1; // CDR hack;
+
+  Hangup();
+ }
+
+ h => {
+  return;
+ }
+
+ _. => {
+  if ("${leg1}"="") Set(__leg1=${cid});
+  if ("${leg2}"="") Set(__leg2=${EXTEN}); // In most cases, must be ${EXTEN} in entry context
+  if ("${uniqueid}"="") Set(__uniqueid=${CDR(uniqueid)});
+  Set(CHANNEL(accountcode)=${CALLERID(num)});
+  Set(CDR(userfield)=${uniqueid}>${CALLERID(num)}>${cid}>${EXTEN});
+  Set(CHANNEL(amaflags)=billing);
+  Set(_ALLOW_TRANSFER=1);
+  Set(CHANNEL(userfield)=${BIND});
+  Set(CDR(x-domain)=${BIND});
+  Set(CDR(x-tag)=~CALLBACK~);
+  Set(CDR(x-cid)=${x_cid});
+  Set(CDR(x-did)=${x_did});
+  Set(CDR(x-dialed)=${EXTEN});
+  Set(CDR(x-spec)=CB/${TAG});
+
+  Set(CDR(x-data)={CONTEXT=callback;TAG=${TAG}});
+
+  Dial(LOCAL/${cid}-${EXTEN}@out/n,,fg); // Instead of goto statement, for prevent macro() logic
+  if ("${DIALSTATUS}"="BUSY") Playback(busy); else
+  if ("${DIALSTATUS}"="NOANSWER") Playback(noanswer); else
+  if ("${DIALSTATUS}"="CHANUNAVAIL") Playback(unavailable); else
+  if ("${DIALSTATUS}"!="ANSWER") Playback(nonexistent);
+
+  if ("${DIALSTATUS}"!="ANSWER") goto s|we;
+ }
+} // context do_callback
+// TtKk

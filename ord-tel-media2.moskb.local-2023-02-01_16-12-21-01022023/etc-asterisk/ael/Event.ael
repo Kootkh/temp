@@ -1,0 +1,105 @@
+// Send call events via HTTP POST
+macro Event(event,callcontext) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  hang=1;
+  return;
+ }
+// Set(LOCAL(time)=${STRFTIME(${EPOCH},,%d.%m.%Y-%H:%M:%S)});
+Set(LOCAL(time)=${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)});
+// NoOp(maxx:Event(${URLa},bind=${BIND}&linkedid=${uniqueid}&id=${UNIQUEID}&time=${time}&event=${event}&cid=${cid}&did=${dnid}&uuid=${UUID}));
+// Set(RouteH=${HASHKEYS(DATA)});
+// NoOp(maxx: DATA ${DATA});
+ Set(LOCAL(NORMALIZED_DATA)=${CUT(DATA,\,,2)});
+// NoOp(maxx: NORMALIZED_DATA ${NORMALIZED_DATA});
+ if ("${INHERIT_CONTEXT}"=""){
+ Set(LOCAL(ORIGINS_CONTEXT)=${CUT(NORMALIZED_DATA,\;,1)});
+//  NoOp(maxx: 1st iter ORIGINS_CONTEXT ${ORIGINS_CONTEXT});
+ Set(LOCAL(ORIGINS_CONTEXT)=${CUT(ORIGINS_CONTEXT,\=,2)});
+// NoOp(maxx: 2nd iter ORIGINS_CONTEXT ${ORIGINS_CONTEXT});
+// NoOp(maxx: INHERIT_CONTEXT is null, so use DATA ${ORIGINS_CONTEXT});
+ } else {
+
+// NoOp(maxx:using inherited ORIGINS_CONTEXT directly given: ${INHERIT_CONTEXT});
+ Set(LOCAL(ORIGINS_CONTEXT)=${INHERIT_CONTEXT});
+ }
+
+// NoOp(roman says: isTransfer: ${isTransfer});
+ if ("${isTransfer}"="yes" && "${ORIGINS_CONTEXT}"="outgoing-call"){
+  Set(LOCAL(ORIGINS_CONTEXT)=transfer);
+ };
+
+// Set(LOCAL(UEVENT)=id: ${UNIQUEID},time: ${time},event: ${event},cid: ${cid},did: ${dnid},origin_context: ${ORIGINS_CONTEXT},iaxinoriginid: ${iaxinoriginid},iaxoriginid: ${iaxoriginid},siporiginid: ${siporiginid});
+// NoOp(maxx: event ${event},${UEVENT});
+// NoOp(maxx: =======================================================================);
+
+
+//if (${HANGUPCAUSE}>0 && (${HANGUPCAUSE}<16 || ${HANGUPCAUSE}>31)) // Some channel troubles?
+
+    if ("${REGEX("^[0-9]+$"${cid})}"="0" && "${cid}"!="") {
+        NoOp(Not number cid ${cid} --> ${n1});
+        Set(LOCAL(eventcid)=${n1});
+    } else {
+        Set(LOCAL(eventcid)=${cid});
+    }
+
+    if ("${REGEX("^[0-9]+$"${dnid})}"="0" && "${did}"!="") {
+        NoOp(Not number dnid ${dnid} --> ${did});
+        Set(LOCAL(dest)=${did});
+    } else {
+        Set(LOCAL(dest)=${dnid});
+    }
+
+    if ("${CONNECTEDLINE(num)}"!="" && "${ORIGINS_CONTEXT}"="outgoing-call" && "${event}"="hang") {
+        Set(LOCAL(dest)=${CONNECTEDLINE(num)});
+    }
+
+
+
+//${CUT(DATA,\,,2)}
+//Set(hostik=${SHELL(hostname)});
+//NoOp(hostik ${hostik});
+//Set(hostik=${CUT(hostik,\.,1)});
+//NoOp(hostik ${hostik});
+
+// DumpChan();
+// UserEvent(${event},${UEVENT});
+//UserEvent(${event},id: ${UNIQUEID},time: ${time},event: ${event},cid: ${cid},did: ${dnid},origin_context: ${ORIGINS_CONTEXT},iaxinoriginid: ${iaxinoriginid},iaxoriginid: ${iaxoriginid},siporiginid: ${siporiginid});
+//Set(LOCAL(UEVENT)=${event},id: ${UNIQUEID},time: ${time},cid: ${cid},did: ${dest},originContext: ${ORIGINS_CONTEXT},iaxInOriginId: ${iaxinoriginid},sipOriginId: ${siporiginid},iaxOriginId: ${iaxoriginid},eventType: ${event});
+//Set(LOCAL(UEVENT)=id:${UNIQUEID},time:${time},cid:${cid},did:${dest},originContext:${ORIGINS_CONTEXT},iaxInOriginId:${iaxinoriginid},sipOriginId:${siporiginid},iaxOriginId:${iaxoriginid},eventType:${event});
+//UserEvent(${event},id: ${UNIQUEID},time: ${time},cid: ${cid},did: ${dest},originContext: ${ORIGINS_CONTEXT},iaxInOriginId: ${iaxinoriginid},sipOriginId: ${siporiginid},iaxOriginId: ${iaxoriginid},eventType: ${event});
+
+//Set(LOCAL(CURLOPTIONS)=asterunit=${PBXSERVER}&bind=${BIND}&event=${event}&id=${UNIQUEID}&time=${time}&origincid=${CALLERID(num)}&cid=${cid}&did=${dest}&originContext=${ORIGINS_CONTEXT}&eventcontext=${callcontext}&iaxInOriginId=${iaxinoriginid}&sipOriginId=${siporiginid}&iaxOriginId=${iaxoriginid}&DialStatus=${DIALSTATUS}&DialedTime=${DIALEDTIME}&AnsweredTime=${ANSWEREDTIME}&mfile=${mfile});
+Set(LOCAL(CURLOPTIONS)=asterunit=${PBXSERVER}&bind=${BIND}&event=${event}&id=${CHANNEL(LinkedID)}&uid=${UNIQUEID}&time=${time}&utime=${EPOCH}&origincid=${CALLERID(num)}&origindid=${leg2}&cid=${eventcid}&did=${dest}&originContext=${ORIGINS_CONTEXT}&eventcontext=${callcontext}&DialStatus=${DIALSTATUS}&DialedTime=${DIALEDTIME}&AnsweredTime=${ANSWEREDTIME}&mfile=${mfile}&crmcallid=${URIENCODE(${CRMcallid})}&queue=${QUEUENAME});
+
+//NoOp(${CURLOPTIONS});
+
+//Set(LOCAL(curlevent)=${CURL(${URLOPTIONS})});
+
+//Set(LOCAL(curlevent)=${CURL(http://insect.obit.ru/tools/ast.php?${CURLOPTIONS})});
+Set(LOCAL(curlevent)=${CURL(http://10.181.169.50:38085/events?${CURLOPTIONS})});
+
+//UserEvent(simple,name: oleg);
+
+ if ("${URLa}${URLb}"="") {
+  return;
+ }
+
+ Set(CURLOPT(httptimeout)=1);
+// Set(LOCAL(time)=${STRFTIME(${EPOCH},,%d.%m.%Y %H:%M:%S)});
+ if ("${URLa}"!="") {
+//  NoOp(Event(${URLa},bind=${BIND}&linkedid=${uniqueid}&id=${UNIQUEID}&time=${time}&event=${event}&cid=${cid}&did=${dnid}&uuid=${UUID}));
+  Set(LOCAL(res)=${CURL(${URLa},bind=${BIND}&linkedid=${uniqueid}&id=${UNIQUEID}&time=${time}&event=${event}&cid=${cid}&did=${dnid}&uuid=${UUID})});
+ }
+
+ if ("${URLb}"!="") {
+//  NoOp(Event(${URLb},bind=${BIND}&linkedid=${uniqueid}&id=${UNIQUEID}&time=${time}&event=${event}&cid=${cid}&did=${dnid}&uuid=${UUID}));
+  Set(LOCAL(res)=${CURL(${URLb},bind=${BIND}&linkedid=${uniqueid}&id=${UNIQUEID}&time=${time}&event=${event}&cid=${cid}&did=${dnid}&uuid=${UUID})});
+ }
+
+ Set(Global(transfer="0"));
+ RESULT=OK;
+ // NoOp(maxx: Event.ael seems to be ok);
+ return;
+} // macro Event(event)

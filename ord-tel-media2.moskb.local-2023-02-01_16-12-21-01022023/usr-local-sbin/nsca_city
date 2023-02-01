@@ -1,0 +1,44 @@
+#!/bin/sh
+umask 177
+
+# NAGIOS|ICINGA uplinks test
+
+# Group for test
+gr=$1
+[ -z "${gr}" ] && gr='BeeLine'
+
+# Exact rule, if one is needed
+peers=$2
+[ -z "${peers}" ] && peers="^${gr}"
+
+SYSADMIN="ds@miwan.me"
+
+HOST=`/bin/hostname`
+FQDN=`/bin/hostname -f`
+
+NAGIOS='91.142.84.118'
+HOSTNAME='PBX'
+SERVICE=CITY
+
+while [ 1 = 1 ]
+do
+ sleep 60
+# dt="/bin/date +%d.%m.%Y-%H:%M:%S"
+
+ PLUGOUT="`/usr/sbin/asterisk -rx 'sip show peers' | /bin/egrep "${peers}" | /bin/grep 'OK' |  /bin/awk '{print $1 "=" $6 $7 $8}'`"
+ res=`echo ${PLUGOUT} | /usr/bin/wc -w`
+ [ ${res} -eq 0 ] && PLUGOUT='*DOWN*' || PLUGOUT=`echo ${PLUGOUT} | tr ' ' '+'`
+ if [ ${res} -eq 0 ]; then
+  RETCODE=2
+ elif [ ${res} -eq 1 ]; then
+#  RETCODE=1 - only 1 channel for now, so no WARN
+  RETCODE=0
+ else
+  RETCODE=0
+ fi
+# echo "$PLUGOUT = $RETCODE"
+
+ SENDOUT=`echo -e "$HOSTNAME\t${SERVICE}\t${RETCODE}\t${PLUGOUT}" | /usr/sbin/send_nsca -H ${NAGIOS} -c '/etc/nagios/send_nsca.cfg'`
+# echo -e "$HOSTNAME\t${SERVICE}\t${RETCODE}\t${PLUGOUT}"
+# exit
+done

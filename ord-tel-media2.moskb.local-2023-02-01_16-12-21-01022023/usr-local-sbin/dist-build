@@ -1,0 +1,32 @@
+#!/bin/sh
+NOW=`date '+%Y-%m-%d_%H-%M-%S'`
+#echo $NOW
+echo $PWD
+CURUS=`stat -c '%U' $PWD`
+echo $CURUS
+HNAME=$(hostname)
+#HNAME=$(hostname -f)
+echo $HNAME
+if [ $1 ]
+then
+DIRN=$HNAME-$NOW-$1
+else
+DIRN=$HNAME-$NOW
+fi
+echo $DIRN
+mkdir $PWD/$DIRN
+cd $PWD/$DIRN
+echo $PWD
+
+cp -r /etc/asterisk/ ./etc-asterisk/
+cp /etc/odbc.ini ./odbc.ini
+cp /etc/odbcinst.ini ./odbcinst.ini
+cp -r /ast ./ast
+cp -r /usr/local/sbin ./usr-local-sbin
+cp -r /pbx ./pbx
+cd ..
+chown -R $CURUS:$CURUS $DIRN
+#echo $PWD
+#cd /var/backup/asterisk/
+#mkdir $NOW
+#cp -r /etc/asterisk /var/backup/asterisk/$NOW

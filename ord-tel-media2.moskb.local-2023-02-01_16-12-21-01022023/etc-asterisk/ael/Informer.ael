@@ -1,0 +1,173 @@
+// Informer queue processor
+context informer { // Informer call passes through this context
+ h => {
+  status=;
+  if (${HANGUPCAUSE}>0 && (${HANGUPCAUSE}<16 || ${HANGUPCAUSE}>31)) // Some channel troubles?
+  {
+   status=128;
+  } else
+   switch ("${DIALSTATUS}")
+   {
+    case "ANSWER": break; //ANSWER must be processed by informer_msg !!!
+    case "BUSY": status=2; break;
+    case "NOANSWER": status=3; break;
+    case "CANCEL": status=3; break;
+    default: status=255;
+   }
+  if (${status}) Set(ODBC_INFORMER_STATUS(${nrec},0)=${status});
+  Set(ODBC_INFORMER_COUNT()=${nrec});
+ }
+
+ _. => {
+  if ("${EXTEN}"="failed")
+  {
+   failed=1;
+   Hangup;
+  }
+  Set(CHANNEL(language)=${DEFAULT_LANG});
+  nrec = ${EXTEN};
+  Set(HASH(Msg)=${ODBC_INFORMER_MSG(${nrec})});
+  Set(HASH(Lst)=${ODBC_INFORMER_LST(${HASH(Msg,InformerMessages)})});
+
+  Dial(LOCAL/${HASH(Msg,Exten)}@iax/n,${HASH(Lst,WaitTime)},fg);
+//  Dial(DAHDI/g1/${HASH(Msg,Exten)},${HASH(Lst,WaitTime)},fg);
+  Hangup;
+ }
+} // context informer
+
+context informer_msg { // Informer message in this context
+ h => {
+  if (${HASH(Lst,Annoy)}=0) done=true;
+  Set(ODBC_INFORMER_STATUS(${nrec},${done})=${status});
+  if (${done}=true) {
+   if ("${HASH(Lst,Mailer)}"!="") {
+    Set(HASH(Mail)=${ODBC_INFORMER_MAIL(${HASH(Lst,Mailer)})});
+    if ("${HASH(Mail,MailOk)}"="1") { // email when done
+     if ("${status}"="1") Set(ok=Сообщение для #${HASH(Msg,Exten)} доставлено ${STRFTIME(${EPOCH},,%d.%m.%Y в %H:%M:%S)});
+      else Set(ok=Голосовое сообщение для #${HASH(Msg,Exten)} в ${STRFTIME(${EPOCH},,%d.%m.%Y %H:%M:%S)} доставить невозможно - обнаружен факс!);
+     Set(count=${MATH(${HASH(Msg,Count)}+1,i)});
+     System(/bin/echo -e "Список дозвона #${HASH(Lst,NRec)}: \\\"`/bin/echo ${HASH(Lst,Description)} | /usr/bin/iconv -f 'utf-8' -t 'koi8-r'`\\\"\r\nСделано попыток: ${count}" | /usr/local/sbin/mailer -f "`/bin/echo '${HASH(Mail,From)}' | /usr/bin/iconv -f 'utf-8' -t 'koi8-r'`" -t "`/bin/echo '${HASH(Mail,To)}' | /usr/bin/iconv -f 'utf-8' -t 'koi8-r'`" -s '${HASH(Mail,Subject)}${ok}');
+    }
+   }
+  }
+ }
+
+ fax => { // FAX detected
+  if ("${HASH(Lst,FAX)}"!="")
+  {
+   SendFAX(${HASH(Lst,FAX)});
+   if ("${FAXSTATUS}"="SUCCESS")
+   {
+    status=1;
+    done=true;
+   } else
+   {
+    status=255;
+    done=false;
+   }
+  } else
+  { // No FAX message to sent, so stop delivering attempts
+   status=4;
+   done=true;
+  }
+  Hangup;
+ }
+
+ _X => {
+   nrec = ${EXTEN};
+   goto s|1;
+  }
+
+ _X. => {
+   nrec = ${EXTEN};
+   goto s|1;
+  }
+
+ s => {
+  Set(CHANNEL(language)=${DEFAULT_LANG});
+  status=1; // Already answered
+  done=false;
+  Set(HASH(Msg)=${ODBC_INFORMER_MSG(${nrec})});
+  Set(HASH(Lst)=${ODBC_INFORMER_LST(${HASH(Msg,InformerMessages)})});
+
+  if ("${HASH(Lst,Voice)}"!="")
+  {
+   Wait(1);
+
+   retry:
+   num=;
+   Read(num,auto-informer/${HASH(Lst,Voice)}&auto-informer/${HASH(Lst,Voice)},1,,,10);
+   if ("${num}"="") {
+    if ("${READSTATUS}"="OK") { // "#" pressed (twice)
+     done=true;
+     Playback(vm-thanks);
+    }
+   } else goto retry;
+  } else goto fax|1;
+  Hangup;
+ }
+} // context informer_msg
+
+macro manage_informer(nrec) {
+// Manage some informer list (reference through nrec)
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ Set(CHANNEL(language)=${DEFAULT_LANG});
+ Set(HASH(Lst)=${ODBC_INFORMER_LST(${nrec})});
+ if ("${HASH(Lst,NRec)}"="") // Not found
+ {
+  Playback(informer/not_found);
+  return;
+ }
+
+ s=s;
+ BackGround(informer/hello);
+
+ begin:
+ BackGround(informer/main);
+ WaitExten(20);
+
+ catch _. {
+  if (${REGEX("^[0-9][0-9]+$" ${EXTEN})}=1) { // Check
+   Set(HASH(Msg)=${ODBC_INFORMER_CHK(${nrec},${EXTEN})});
+   if (${HASH(Msg,Exten)})
+   {
+    Playback(informer/number);
+    Playback(informer/found);
+   } else
+   {
+    Playback(informer/number);
+    &SayPhone(${EXTEN});
+    Playback(informer/not_found);
+   }
+  }
+
+  if (${REGEX("^[*][0-9][0-9]+[#]$" ${EXTEN})}=1) { // Add
+   phone=${EXTEN:1:${LEN(${EXTEN:2})}};
+   Set(ODBC_INFORMER_INS(${nrec})=${phone});
+
+   Playback(informer/number);
+   &SayPhone(${phone});
+   Playback(informer/added);
+  }
+
+  if (${REGEX("^[#][0-9][0-9]+[#]$" ${EXTEN})}=1) { // Remove
+   phone=${EXTEN:1:${LEN(${EXTEN:2})}};
+   Set(ODBC_INFORMER_ARC(${nrec})=${phone});
+   Set(HASH(Msg,Exten)=);
+
+   Playback(informer/number);
+   &SayPhone(${phone});
+   Playback(informer/deleted);
+  }
+
+  if (${REGEX("^[#]$" ${EXTEN})}=1) return;
+
+  goto ${s}|begin;
+ }
+
+ return;
+} // macro manage_informer(nrec)

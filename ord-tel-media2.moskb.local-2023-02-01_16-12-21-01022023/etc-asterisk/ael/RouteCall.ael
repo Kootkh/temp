@@ -1,0 +1,311 @@
+// Try to pass call through the appropriated route(s)
+// TAG=Exten.RouteTag & level=1 marks special routes for "cross-pbx distributed extensions"
+macro RouteCall(number, level) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+ //NoOp(maxx: тут конец или что?);
+
+  Set(CDR(x-result)=${HANGUPCAUSE}:${DIALSTATUS});
+  CELGenUserEvent(xresult,${DIALSTATUS});
+  NoOp(${leg1}>>${leg2} FUNCTION ${HANGUPCAUSE}:${DIALSTATUS}@RouteCall(${number},${level}));
+  return;
+ }
+
+ catch t { // Timeout trap
+  Set(CDR(x-result)=${HANGUPCAUSE}:${DIALSTATUS});
+  CELGenUserEvent(xresult,${DIALSTATUS});
+  NoOp(${leg1}>>${leg2} FUNCTION ${HANGUPCAUSE}:${DIALSTATUS}@RouteCall(${number},${level}));
+  return;
+ }
+
+//  Set(REDIRMODE=${CUT(DIALEDPEERNUMBER,@,1)});
+//  Set(REDIRMODE=${CUT(REDIRMODE,-,2)});
+//  Set(REDIRMODE=${REDIRMODE:0:1});
+
+
+
+NoOp(maxx: RouteCall 25: number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)} DCID ${DCID} REDIRECT ${REDIRECT});
+ &LoopGuard();
+ NoOp(${leg1}>>${leg2} FUNCTION RouteCall(${number},${level}));
+
+ Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>0:RouteCall ${number});
+ Set(_cidX=${cid});
+
+ // Now evaluate Dial() features
+ if ("${from}"!="transfer") { // During transfer, calling and called parties may swap!!!
+  if ("${HASH(ext,FeatureTransfer)}"="1") T=T; else T=;
+  if ("${HASH(ext,FeaturePark)}"="1") K=K; else K=;
+ }
+
+ local NRec=;
+ if ("${TAG}"="") Set(TAG=${CHANNEL(peername)});
+
+ if ("${TRUST_ACCOUNT}"="1") {
+  Set(LOCAL(x_account)=${SIP_HEADER(X-ACCOUNT)});
+  if ("${x_account}"="") Set(LOCAL(x_account)=${IAXVAR(X-ACCOUNT)});
+  if ("${x_account}"!="") Set(CDR(accountcode)=${x_account});
+
+  Set(LOCAL(x_bind)=${SIP_HEADER(X-BIND)});
+  if ("${x_bind}"="") Set(LOCAL(x_bind)=${IAXVAR(X-BIND)});
+  if ("${x_bind}"!="") Set(BIND=${x_bind});
+ }
+
+ if ("${cid}"="!"&"${REDIRECT}"!="") Set(LOCAL(cid)=${REDIRECT});  // Redirect from TRUNK extension
+
+    //DumpChan();
+
+// NoOp(ODBC_GET_CALL_ROUTES(${number},${cid},${level},${TAG},${BIND},${CALLERID(RDNIS)}));
+// Set(LOCAL(routes)=${ODBC_GET_CALL_ROUTES(${number},${cid},${level},${TAG},${BIND},${CALLERID(RDNIS)})});
+ NoOp(ODBC_GET_CALL_ROUTES(${number},${cid},${level},${TAG},${BIND},${CALLERID(RDNIS)},${HASH(ext,RouteGroup)}));
+ Set(LOCAL(routes)=${ODBC_GET_CALL_ROUTES(${number},${cid},${level},${TAG},${BIND},${CALLERID(RDNIS)},${HASH(ext,RouteGroup)})});
+
+ while (1=1) {
+  Set(HASH(route)=${ODBC_FETCH(${routes})});
+  if ("${ODBC_FETCH_STATUS}"!="SUCCESS") {
+   if ("${NRec}"=""&${level}>1) {
+    System(/usr/local/sbin/mailer -f "SSS <`/bin/hostname`>" -t 'voice@obit.ru' -s '${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})} NO ROUTE (FROD?) TAG=${TAG}@${CHANNEL}' -b '${uniqueid}>${leg1}>${leg2} ** ODBC_GET_CALL_ROUTES(${number},${cid},${level},${TAG},${BIND},${CALLERID(RDNIS)}) >> invalid-call' -charset UTF-8);
+    &invalid-call(${number}); // No acceptable route from cid to dnid
+    Set(DIALSTATUS=INVALID);
+   }
+   Set(DIALSTATUS=CONGESTION);
+   Congestion(3);
+   return;
+  }
+  Set(LOCAL(NRec)=${HASH(route,NRec)});
+  Set(LOCAL(Spec)=${HASH(route,Spec)});
+  Set(LOCAL(DNID)=${HASH(route,DNID)});
+  if ("${ALTER_CID}"="") {
+   Set(LOCAL(DCID)=${HASH(route,CID)});
+  //NoOp(maxx: RouteCall 76: NO ALTER_CID  number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+  } else {
+   Set(LOCAL(DCID)=${CALLERID(number)});
+  NoOp(maxx: RouteCall 79: ALTER_CID ${ALTER_CID} number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+  }
+//  Set(DCID=${FILTER(0-9+,${DCID})}); // Avoid to send non-digit chars, may cause "21" etc.
+  if (${LEN(${DCID})}=7) {
+        NoOp(maxx: RouteCall: DCID should be ${ExtenRegion}${DCID});
+        Set(DCID=${ExtenRegion}${FILTER(0-9+,${DCID})});
+    } else {
+        Set(DCID=${FILTER(0-9+,${DCID})});
+    }
+
+
+// "RingTime" smallint NULL,                   -- Overwrite system constant
+// "CallTime" bigint NULL,                     -- Drop call after this time, seconds
+// "HangupDelay" smallint NULL,                -- Delayed hangup
+// "CallLimit" smallint DEFAULT 0 NOT NULL,    -- Limit maximum calls through this route
+// "CallGroup" text NULL,                      -- Group routes with common limit etc.
+
+  Set(LOCAL(RingTime)=${HASH(route,RingTime)});
+  Set(LOCAL(CallTime)=${HASH(route,CallTime)});
+  Set(LOCAL(HangupDelay)=${HASH(route,HangupDelay)});
+  Set(LOCAL(CallLimit)=${HASH(route,CallLimit)});
+  Set(LOCAL(MAX_CPS)=${HASH(route,CPS)});
+  Set(LOCAL(CallGroup)=${HASH(route,CallGroup)});
+
+NoOp(maxx: RouteCall 92: number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+
+  if ("${x_account}"="") {
+   if ("${HASH(route,Ingress)}"!="1") {
+    if ("${CALLERID(RDNIS)}"!="") {
+     Set(CHANNEL(accountcode)=${CALLERID(RDNIS)});
+    } else {
+     if ("${HASH(route,Insecure)}"!="1") {
+      Set(CHANNEL(accountcode)=${cid});
+     } else Set(CHANNEL(accountcode)=${DCID});
+    }
+   } else Set(CHANNEL(accountcode)=${leg2});
+  }
+
+  if ("${HASH(route,RDNIS)}"!="" & "${SPAWN}"="") {
+  //NoOp(maxx: RouteCall 102 RDNIS: RDNIS in HASH ${HASH(route,RDNIS)} number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+   Set(CALLERID(RDNIS)=${HASH(route,RDNIS)});
+   SIPaddheader(X-ACCOUNT:${CHANNEL(accountcode)});
+   Set(IAXVAR(X-ACCOUNT)=${CHANNEL(accountcode)});
+  }
+  
+ NoOp(maxx: RouteCall 108 - after RDNIS: number B ${number}  number A(cid) ${cid}  callerid-num ${CALLERID(num)} callerid-name ${CALLERID(name)} callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+  
+// REDIRECT FROM CASUAL LOCAL EXTEN WITHOUT UMBRELLA EXTEN
+
+  if ("${CALLERID(RDNIS)}"!="" & "${SPAWN}"!="" & "${REDIRECT}"!="" & "${SPAWNMODE}"="!" & ${level} <= 2) {
+
+  NoOp(maxx: RouteCall 122: REDIRECT FROM CASUAL LOCAL EXTEN WITHOUT UMBRELLA EXTEN,  RDNIS ${CALLERID(RDNIS)} SPAWN  ${SPAWN} REDIRECT ${REDIRECT} SPAWNMODE ${SPAWNMODE});
+
+  NoOp(maxx: RouteCall 124: DIALEDPEERNUMBER ${DIALEDPEERNUMBER} SPAWNMODE ${SPAWNMODE} REDIRECT ${REDIRECT} SPAWN ${SPAWN} rdnis ${CALLERID(RDNIS)} dnid ${dnid});
+//  Set(DCID=${FILTER(0-9+,${CALLERID(number)})});
+
+  if (${LEN(${FILTER(0-9+,${CALLERID(number)})})}=7) {
+        NoOp(maxx: RouteCall: DCID should be ${ExtenRegion}${DCID});
+        Set(DCID=${ExtenRegion}${FILTER(0-9+,${CALLERID(number)})});
+    } else {
+        Set(DCID=${FILTER(0-9+,${CALLERID(number)})});
+    }
+
+
+  }
+
+// clearing rdnis for extern outgoing calls
+
+ if ("${SPAWNMODE}"=">" & ${level} > 2) {
+        Set(CALLERID(RDNIS)=${HASH(Route,RDNIS)});
+    }
+
+
+  if ("${BIND}"!="") {
+   SIPaddheader(X-BIND:${BIND});
+   Set(IAXVAR(X-BIND)=${BIND});
+  }
+
+    //DumpChan();
+
+  if ("${CallGroup}"="") {
+   Set(LOCAL(CallGroup)=${CHANNEL(accountcode)});
+  }
+
+  if (${CallLimit}>0) {
+   Set(GROUP(R)=${CallGroup});
+   if (${GROUP_COUNT(${CallGroup}@R)}>${CallLimit}) {
+    continue;
+   }
+  }
+
+    //final solve for phone-friven redirect
+
+    if ("${HASH(route,RDNIS)}"="" && "${CUT(CALLERID(RDNIS),+,1)}"!="") {
+    Set(CALLERID(RDNIS)=);
+    }
+
+
+  // <CPS>
+  if (${MAX_CPS}!=0) {
+   local time=${EPOCH}-5;
+   local MAX_CPS=${MAX_CPS}*5; // 5 second floating window
+   if (${MAX_CPS}<0) {
+    local lock=1;
+    local MAX_CPS=-${MAX_CPS};
+   }
+
+   local l = LOCK(CPS_${CallGroup});
+   Set(LOCAL(CPS)=${GLOBAL(CPS_${CallGroup})});
+   if (0${CUT(CPS,:,${FIELDQTY(CPS,:)})}<=${time}) {
+    Set(LOCAL(CPS)=);
+   } else {
+    for (LOCAL(i)=2; ${i}<=${FIELDQTY(CPS,:)}; LOCAL(i)=${i}+1) {
+     Set(LOCAL(call)=${CUT(CPS,:,${i})});
+     if (${call}>${time}) {
+      Set(LOCAL(CPS)=:${CUT(CPS,:,${i}-)});
+      break;
+     }
+    }
+   }
+
+   if (${FIELDQTY(CPS,:)}>${MAX_CPS}) {
+    if ("${lock}"!="") Set(GLOBAL(CPS_${CallGroup})=${CPS}:${EPOCH});
+    NoOp(BAN GLOBAL_CPS_${CallGroup} = ${GLOBAL(CPS_${CallGroup})});
+    continue;
+   } else Set(GLOBAL(CPS_${CallGroup})=${CPS}:${EPOCH});
+   NoOp(GLOBAL_CPS_${CallGroup} = ${GLOBAL(CPS_${CallGroup})});
+
+   local l = UNLOCK(CPS_${CallGroup});
+  }
+  // </CPS>
+
+  if ("${RingTime}"!="") {
+   Set(LOCAL(timeout-dial)=${RingTime}); // Timeout value for Dial()
+  } else {
+   Set(timeout-dial=${ODBC_CONST(timeout-dial)}); // Timeout value for Dial()
+  }
+
+  if ("${CallTime}"!="") {
+   Set(LOCAL(L)=L(${CallTime}000)); // Maximum call time, in milliseconds
+  } else {
+   Set(LOCAL(L)=);
+  }
+
+  Set(CHANNEL(amaflags)=billing);
+  Set(CDR(x-tag)=${TAG});
+  Set(CDR(x-domain)=${BIND});
+   Set(CHANNEL(userfield)=${BIND});
+  Set(CDR(x-cid)=${DCID});
+  Set(CDR(x-did)=${number});
+  Set(CDR(x-dialed)=${DNID});
+  Set(CDR(x-spec)=${Spec});
+  Set(CDR(x-insecure)=${HASH(route,Insecure)});
+
+  Set(CALLERID(number)=${DCID});
+  Set(CALLERID(ani)=${DCID});
+  Set(CALLERID(dnid)=${DNID});
+  Set(CALLERPRES()=allowed_not_screened);
+
+  // Allow dial DTMF after connection
+  Set(D=${CUT(Spec,%,2)});
+  if ("${D}"!="") {
+   Set(LOCAL(D)=D(${D}${DNID}));
+   Set(LOCAL(Spec)=${CUT(Spec,%,1)});
+   Set(LOCAL(DNID)=${CUT(Spec,/,2)});
+   Set(LOCAL(Spec)=${CUT(Spec,/,1)}/);
+  } else {
+   if ("${DTMF}"!="") {
+    Set(D=D(wwwwww${DTMF}));
+   }
+  }
+
+  Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>${NRec}:${Spec}${DNID});
+
+  // Line monitoring - out
+  if ("${HASH(ext,MonitorTo)}"!="") {
+   &SetMonitor(${HASH(ext,MonitorTo)},${HASH(ext,BIND)},${cid},${DNID},out);
+  } else {
+   if ("${MonitorTo}"!="") &SetMonitor(${MonitorTo},${BIND},${CHANNEL(accountcode)},-${cid}-${DNID},out);
+  }
+
+//  if ("${HASH(route,NAT)}"!="") Set(ODBC_NAT(${cid},${BIND},${DCID},${DNID})=${HASH(route,NAT)});
+
+//  if (${LEN(${FILTER(0-9,${DCID})})}<7) {
+//   System(/usr/local/sbin/mailer -f "SSS <`/bin/hostname`>" -t 'voice@obit.ru' -s '${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})} LESS THAN 7 DIGIT CLID' -b '${uniqueid}>${leg1}>${leg2} CID=${DCID} RDN=${CALLERID(RDNIS)}' -charset UTF-8);
+//  }
+
+  Gosub(${number},1); // CDR hack
+
+  if ("${DIALSTATUS}"="CHANUNAVAIL"||"${DIALSTATUS}"="CONGESTION") { // Some channel troubles?
+   Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>1:${route}${number}:ERROR ${HANGUPCAUSE});
+   continue;
+  }
+
+  if ("${DIALSTATUS}"="ANSWER"&"${HangupDelay}"!="") {
+   Playtones(Busy);
+   System(/bin/sleep ${HangupDelay}s); // Remember that simple Wait() will not work here!!!;
+  }
+
+  return;
+ }
+ return;
+
+ catch _. {
+//    Set(RouteH=${HASHKEYS(route)});
+//    NoOp(maxx: route hash keys: ${HASHKEYS(route)});
+    NoOp(maxx: RouteCall 221: number B ${number}  number A(cid) ${cid} callerid-num ${CALLERID(num)}  callerid-name ${CALLERID(name)}  callevel ${level}  tag ${TAG} bind ${BIND} rdnis ${CALLERID(RDNIS)}  DCID ${DCID});
+//  if ("${dnid}"="") goto transfer|${EXTEN}|1; // TRANSFER TRAP
+//    HASHKEYS(route);
+  Set(GROUP(LegA)=${uniqueid}); // Channel hook
+  &Event(dialroute,${CONTEXT});
+
+  //DumpChan();
+  Set(CONNECTEDLINE(num,i)=${dnid});
+  Set(CONNECTEDLINE(pres)=allowed);
+
+NoOp(ConnectedLine=${CONNECTEDLINE(name)});
+
+
+        Dial(${Spec}${DNID},${timeout-dial},${L}${T}${K}${R}${D}fgM(mkk));
+
+
+
+  Set(CDR(x-result)=${HANGUPCAUSE}:${DIALSTATUS});
+  CELGenUserEvent(xresult,${DIALSTATUS});
+  NoOp(${leg1}>>${leg2} FUNCTION ${HANGUPCAUSE}:${DIALSTATUS}@RouteCall(${number},${level}));
+  return;
+ }
+} // RouteCall(number, level)
+

@@ -1,0 +1,163 @@
+// DialPlan processing contexts
+// !!! OLD routing scheme: outgoing calls processing
+context outgoing-call {
+ h => {
+  goto i|1;
+ }
+
+ i => {
+  NoOp(QOS = "${RTPAUDIOQOS}");
+  NoOp(CHANNELS outgoing-call hang = ${CHANNEL} :: ${uniqueid}>${leg1}>${leg2}>${dnid});
+
+  if ("${chan_local}"="") { // Not a local-channel call
+   if ("${HASH(ext,DND)}"!="1"&${GROUP_COUNT(${extd}@B)}=0) {
+    &InUse(${extd});
+   } else {
+    DEVICE_STATE(Custom:${extd})=BUSY;
+   }
+   if (${lcid}) DEVICE_STATE(Custom:${lcid})=NOT_INUSE;
+  } else {
+   Set(HASH(extd)=${ODBC_EXTEN(${leg1})},${BIND});
+   if ("${HASH(extd,Exten)}"!="") {
+    if ("${BIND}"!="") {
+     &InUse(${BIND}*${HASH(extd,Exten)});
+    } else {
+     &InUse(${HASH(extd,Exten)});  // Not a clean way to check transferred peer, must be received from bridged channel (?)
+    }
+   }
+  }
+
+  if ("${tr}"!="") { // Try to return failed blind transfer
+   if ("${DIALSTATUS}"="BUSY" | "${DIALSTATUS}"="NOANSWER") {
+    NoOp(TRANSFER ${tr});
+    if (${lcid}) Set(CALLERID(num)=${lcid});
+    Dial(LOCAL/${tr}@iax/n,300,fg);
+   }
+  }
+    NoOp(maxx: OutgoingCall: DIALSTATUS ${DIALSTATUS});
+  Set(CDR(x-result)=${HANGUPCAUSE}:${DIALSTATUS});
+  CELGenUserEvent(xresult,${DIALSTATUS});
+//  StopMonitor();
+//  System(/usr/local/sbin/wav2mp3 ${mfile});
+  NoOp(maxx: адрес файла для записи ${mfile});
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup(${HANGUPCAUSE});
+ } // i => {
+
+
+
+
+ s => {
+
+  if ("${BIND}"!="") {
+   Set(extd=${BIND}*${HASH(ext,Exten)});
+  } else {
+   Set(extd=${HASH(ext,Exten)});
+  }
+
+
+
+  if ("${from}"!="out") Set(GROUP(O)=${extd});
+
+  count=${GROUP_COUNT(${extd}@I)}+${GROUP_COUNT(${extd}@O)};
+
+  Set(ODBC_LINE_STATUS(${HASH(ext,Exten)},${BIND})=OUT);
+
+
+  if ("${tr}"="") { // IF not a BLIND TRANSFER
+   if ("${chan_local}"="") { // Not a local-channel call
+
+    if (("${HASH(ext,DND)}"!="1") & (${count}<0${HASH(ext,CallLimit)})) {
+     DEVICE_STATE(Custom:${extd})=INUSE;
+    } else {
+     DEVICE_STATE(Custom:${extd})=BUSY;
+    }
+   }
+  }
+
+  if ("${HASH(ext,FeatureTransfer)}"="1"&"${master}"="") {
+   Set(_ALLOW_TRANSFER=1);
+   Set(DYNAMIC_FEATURES=xferA#xferB);
+  }
+
+  Set(CHANNEL(accountcode)=${cid});
+
+  if ("${CUT(dnid,#,2)}"!=""&${LEN(${CUT(dnid,#,1)})}>2) { // DTMF after connection
+   Set(DTMF=${CUT(dnid,#,2)});
+   Set(__dnid=${CUT(dnid,#,1)});
+  }
+
+// будем решать вопросы с +7
+
+
+
+//  NoOp(maxx: OutgoingCall.ael, ODBC_LEVEL_E ${dnid},${REDIRECT},${Aliased},${BIND});
+//  NoOp(maxx: ext hash keys: ${HASHKEYS(ext)});
+//  NoOp(maxx: extd hash keys: ${HASHKEYS(extd)});
+
+
+
+  if ("${REDIRECT}"!="") {
+//   NoOp(maxx: maxx: REDIRECT is not null, INVALID REDIRECT!!!);
+   Set(HASH(res)=${ODBC_LEVEL_E(${dnid},${REDIRECT},${Aliased},${BIND})});
+   if ("${CUT(HASH(res,Action),\,,1)}"="i"&"${HASH(res,Note)}"!="restrict:-1") {
+    System(/usr/local/sbin/mailer -f "SSS <`/bin/hostname`>" -t 'voice@obit.ru' -s '${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})} INVALID REDIRECT!!! TAG=${TAG}@${CHANNEL}' -b '${HASH(res,Note)} ** ${uniqueid}>${leg1}>${leg2} ** ODBC_GET_ACTION(${dnid},${REDIRECT},${Aliased},${BIND}) >> ${HASH(res,Action)}' -charset UTF-8);
+   }
+//   Gosub(${ODBC_GET_ACTION(${dnid},${REDIRECT},${Aliased},${BIND})});
+  } else {
+   NoOp(maxx: OutgoingCall.ael empty REDIRECT, ODBC_LEVEL_E dnid ${dnid}, cid ${cid}, aliased ${Aliased}, bind ${BIND});
+   Set(HASH(res)=${ODBC_LEVEL_E(${dnid},${cid},${Aliased},${BIND})});
+
+   if ("${CUT(HASH(res,Action),\,,1)}"="i") {
+//    NoOp(maxx: maxx: action i, INVALID EGRESS!!!);
+    System(/usr/local/sbin/mailer -f "SSS <`/bin/hostname`>" -t 'voice@obit.ru' -s '${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})} INVALID EGRESS!!! TAG=${TAG}@${CHANNEL}' -b '${HASH(res,Note)} ** ${uniqueid}>${leg1}>${leg2} ** ODBC_GET_ACTION(${dnid},${cid},${Aliased},${BIND}) >> ${HASH(res,Action)}' -charset UTF-8);
+   }
+//   Gosub(${ODBC_GET_ACTION(${dnid},${cid},${Aliased},${BIND})});
+  }
+
+  if ("${CUT(HASHKEYS(res),\,,1)}"="") {
+//   NoOp(maxx: maxx: empty action, EGRESS BUG!!!, res hash keys: ${HASHKEYS(res)});
+   System(/usr/local/sbin/mailer -f "SSS <`/bin/hostname`>" -t 'voice@obit.ru' -s '${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})} EGRESS BUG!!! TAG=${TAG}@${CHANNEL}' -b '${uniqueid}>${leg1}>${leg2}' -charset UTF-8);
+  }
+
+
+//DumpChan();
+
+  if ("${CUT(CHANNEL,/,1)}"!="Local") {
+    if ("${CUT(HASH(res,Action),\,,1)}"="exten") {
+        NoOp(maxx: OutgoingCall: filling data: channel is not local,action is exten);
+//        Set(DATA=${DATA},CONTEXT=incoming-call;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${dnid};Guid=${ODBC_GUID(${BIND},${dnid})});
+         Set(DATA=${DATA},CONTEXT=incoming-call;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${dnid});
+    } else {
+    NoOp(maxx: OutgoingCall: filling data: channel is not local, action is NOT exten);
+   Set(DATA=${DATA},CONTEXT=outgoing-call;TAG=${TAG};ACTION=${CUT(HASH(res,Action),\,,1)});
+    }
+
+  } else {
+
+      if ("${CUT(HASH(res,Action),\,,1)}"="exten") {
+    if ("${originated}"="1" & "${from_context}"="originate") { //first leg of originated call
+        NoOp(maxx: OutgoingCall: filling data: channel is local, action is exten, first leg of originated cal);
+        Set(DATA=${DATA};ACTION=${CUT(HASH(res,Action),\,,1)});
+    } else {
+        NoOp(maxx: OutgoingCall: filling data: channel is local, action is exten);
+//        Set(DATA=${DATA};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${dnid};Guid=${ODBC_GUID(${BIND},${dnid})});
+        Set(DATA=${DATA};ACTION=${CUT(HASH(res,Action),\,,1)};Exten=${dnid});
+        }
+    } else {
+    NoOp(maxx: OutgoingCall: filling data: channel is local, action is NOT exten);
+    Set(DATA=${DATA};ACTION=${CUT(HASH(res,Action),\,,1)});
+    }
+
+  } //if ("${CUT(CHANNEL,/,1)}"!="Local")
+
+  Set(CDR(x-data)={${DATA:1}});
+  NoOp(maxx: end of outgoing-call, ${HASH(res,Note)}, res are ${HASHKEYS(res)});
+  NoOp(${leg1}>>${leg2} FUNCTION outgoing-call(${HASH(res,Note)},${TAG},${CHANNEL}));
+//  Set(__PREBRIDGE=);
+  Gosub(${HASH(res,Action)});
+  goto i|1;
+ } // s =>
+} // context outgoing-call

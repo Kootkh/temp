@@ -1,0 +1,675 @@
+//
+macro Recorder(record,file) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ Set(CHANNEL(language)=ru);
+ Set(GROUP()=Recorder);
+ if (GROUP_COUNT(Recorder)>1) {
+  Playback(no);
+  return;
+ }
+
+ if (${REGEX("^[1]" ${record})}=1) {
+  Answer;
+  Record(${file}.alaw,,90,skip);
+ } else {
+  Answer;
+  Playback(${file});
+  Wait(2);
+  return;
+ }
+ return;
+} // macro Recorder(record)
+
+macro Invite(res,contxt,exten) { // Do CallBack as specified in ${res}
+// But invite callee to the specified ${contxt} ${exten}
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ if ("${HASH(res,Exten)}"="") return; // empty record...
+ if ("${HASH(res,CID)}"="${cid}") return; // no need to invite caller
+ HASH(res,Context)=${contxt};
+ HASH(res,Extension)=${exten};
+ Set(cb=/var/spool/asterisk/tmp/${HASH(res,CID)}-${HASH(res,Exten)}.call);
+
+ System(/bin/echo "CallerID: ${HASH(res,CallerID)}" >> ${cb});
+ System(/bin/echo "Channel: ${HASH(res,Channel)}" >> ${cb});
+ System(/bin/echo "WaitTime: 45" >> ${cb});
+ System(/bin/echo "Context: ${HASH(res,Context)}" >> ${cb});
+ System(/bin/echo "Extension: ${HASH(res,Extension)}" >> ${cb});
+ System(/bin/echo "Priority: ${HASH(res,Priority)}" >> ${cb});
+ System(/bin/echo "AlwaysDelete: ${HASH(res,AlwaysDelete)}" >> ${cb});
+ System(/bin/echo "Archive: ${HASH(res,Archive)}" >> ${cb});
+ System(/bin/mv ${cb} /var/spool/asterisk/outgoing/);
+ return;
+} // macro Invite(res,context,exten)
+
+macro MiranConference(arg) {
+ goto ${arg}|1;
+
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ catch join {
+  Answer;
+  Set(CHANNEL(language)=ru);
+  Playback(beep);
+  MeetMeCount(999,cnt);
+  NoOp(cnt=${cnt});
+  if (${cnt}=0) {
+   Set(MEETME_RECORDINGFORMAT=gsm);
+   Set(MEETME_RECORDINGFILE=/var/spool/asterisk/meetme/${STRFTIME(${EPOCH},,%Y%m%d%H%M%S)}-${cid}-${dnid}-999);
+   MeetMe(999,IMqr);
+   Playback(vm-goodbye);
+   return;
+  }
+
+  MeetMe(999,IMq);
+  Playback(vm-goodbye);
+  return;
+ }
+
+//insert into "CallBack" values ('3369709','89219583253','CallBack <8123204918>','DAHDI/g1/89219583253',15,'callback','28525','1',1,1,1,'punk');
+//insert into "CallBack" values ('3369709','89112386605','CallBack <8123204918>','DAHDI/g1/89112386605',15,'callback','28599','1',1,1,1,'Masha');
+//insert into "CallBack" values ('3369709','89062292414','CallBack <8123204918>','DAHDI/g1/89062292414',15,'callback','28530','1',1,1,1,'Petrovich');
+//insert into "CallBack" values ('3369709','89046172716','CallBack <8123204918>','DAHDI/g1/89046172716',15,'callback','28524','1',1,1,1,'Benzak');
+//insert into "CallBack" values ('3369709','89052001504','CallBack <8123204918>','DAHDI/g1/89052001504',15,'callback','28524','1',1,1,1,'Shurik');
+//insert into "CallBack" values ('3369709','89516880237','CallBack <8123204918>','DAHDI/g1/89516880237',15,'callback','28524','1',1,1,1,'Kolia');
+//insert into "CallBack" values ('3369709','89043305657','CallBack <8123204918>','DAHDI/g1/89043305657',15,'callback','28524','1',1,1,1,'Nacist');
+//insert into "CallBack" values ('3369709','89046490020','CallBack <8123204918>','DAHDI/g1/89046490020',15,'callback','28524','1',1,1,1,'Dania');
+
+//insert into "CallBack" values ('3369709','89052672931','CallBack <8123204918>','DAHDI/g1/89052672931',15,'callback','28524','1',1,1,1,'Olga');
+ catch make {
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89219583253)}); &Invite(${res},MiranConference,join); // punk
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89062292414)}); &Invite(${res},MiranConference,join); // Petrovich
+//  Set(HASH(res)=${ODBC_CALLBACK(3369709,89046172716)}); &Invite(${res},MiranConference,join); // Benzak
+//  Set(HASH(res)=${ODBC_CALLBACK(3369709,89516880237)}); &Invite(${res},MiranConference,join); // Kolia
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89052001504)}); &Invite(${res},MiranConference,join); // Shurik
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89043305657)}); &Invite(${res},MiranConference,join); // Nacist
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89046490020)}); &Invite(${res},MiranConference,join); // Dania
+
+  Set(HASH(res)=${ODBC_CALLBACK(3369709,89052672931)}); &Invite(${res},MiranConference,join); // Olga
+
+  s=join;
+  goto ${s}|1;
+ }
+ return;
+} // macro MiranConference()
+
+// Voice menu for any extension
+macro IVR() {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ if (${incoming}=1) return;
+ Set(TIMEOUT(digit)=3);
+ Set(CHANNEL(language)=ru);
+// BackGround(ivr/hello&ivr/main);
+
+ Set(s=~~s~~);
+ num=;
+ Read(num,ivr/hello,1,,,1);
+ if ("${num}"!="") goto menu;
+ begin:
+ if (${hang}) return;
+// WaitExten(60,m(beep));
+ num=;
+ Read(num,ivr/main,1,,,30);
+ if ("${num}"="") {
+  Set(CALLERID(dnid)=ivr);
+  StackPop();
+//  if (${CHANNEL(state)}!="")
+  &process_prefix();
+ }
+
+ menu:
+// SayDigits(${num});
+ if ("${num}"="1") &IVRTransfer();
+ if ("${num}"="2") &IVRMail();
+ if ("${num}"="3") &IVRAlias();
+ if ("${num}"="*") goto begin;
+
+// Playback(ivr/invalid);
+ goto begin;
+ return;
+} // macro IVR()
+
+macro IVRTransfer() {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if ("${HASH(ext,IVRTransfer)}"="0") {
+  Playback(ivr/disabled);
+  return;
+ }
+ Set(s=~~s~~);
+ begin:
+ if (${hang}) return;
+ BackGround(ivr/transfer);
+ WaitExten(20);
+
+ catch _. {
+//  SayDigits(${EXTEN});
+  if (${REGEX("^1" ${EXTEN})}=1) {
+   Playback(beep);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferCall)=${EXTEN:1});
+   Set(HASH(ext,TransferCall)=${EXTEN:1});
+   if (${REGEX("^1.+" ${EXTEN})}=1) Playback(ivr/transfer-on); else Playback(ivr/transfer-off);
+  }
+  if (${REGEX("^2" ${EXTEN})}=1) {
+   Playback(beep);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferOnBusy)=${EXTEN:1});
+   Set(HASH(ext,TransferOnBusy)=${EXTEN:1});
+   if (${REGEX("^2.+" ${EXTEN})}=1) Playback(ivr/transfer_busy-on); else Playback(ivr/transfer_busy-off);
+  }
+  if (${REGEX("^3" ${EXTEN})}=1) {
+   Playback(beep);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferOnTimeout)=${EXTEN:1});
+   Set(HASH(ext,TransferOnTimeout)=${EXTEN:1});
+   if (${REGEX("^3.+" ${EXTEN})}=1) Playback(ivr/transfer_timeout-on); else Playback(ivr/transfer_timeout-off);
+  }
+  if (${REGEX("^4[0-9]+" ${EXTEN})}=1) {
+   Playback(beep);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},Timeout)=${EXTEN:1});
+   Set(HASH(ext,Timeout)=${EXTEN:1});
+   Playback(ivr/timeout-on);
+  }
+  if (${REGEX("^000$" ${EXTEN})}=1) {
+   Playback(beep);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferCall)=);
+   Set(HASH(ext,TransferCall)=);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferOnBusy)=);
+   Set(HASH(ext,TransferOnBusy)=);
+   Set(ODBC_EXTEN(${HASH(ext,Exten)},${HASH(ext,BIND)},TransferOnTimeout)=);
+   Set(HASH(ext,TransferOnTimeout)=);
+   Playback(ivr/transfer_all-off);
+  }
+
+  if (${REGEX("^[*]" ${EXTEN})}=1) {
+   if (${REGEX("^[*]1" ${EXTEN})}=1) {
+    if ("${HASH(ext,TransferCall)}"!="")
+    {
+     &SayPhone(${HASH(ext,TransferCall)});
+    } else Playback(ivr/empty);
+   }
+   if (${REGEX("^[*]2" ${EXTEN})}=1) {
+    if ("${HASH(ext,TransferOnBusy)}"!="")
+    {
+     &SayPhone(${HASH(ext,TransferOnBusy)});
+    } else Playback(ivr/empty);
+   }
+   if (${REGEX("^[*]3" ${EXTEN})}=1) {
+    if ("${HASH(ext,TransferOnTimeout)}"!="")
+    {
+     &SayPhone(${HASH(ext,TransferOnTimeout)});
+    } else Playback(ivr/empty);
+   }
+   if (${REGEX("^[*]4" ${EXTEN})}=1) {
+    if ("${HASH(ext,Timeout)}"!="")
+    {
+     SayNumber(${HASH(ext,Timeout)});
+    } else Playback(ivr/empty);
+   }
+  }
+  if (${REGEX("^[#]$" ${EXTEN})}=1) return;
+  goto ${s}|begin;
+ }
+ return;
+} // macro IVRTransfer()
+
+macro IVRMail() {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if ("${HASH(ext,IVRMail)}"="0") {
+  Playback(ivr/disabled);
+  return;
+ }
+
+ if (${hang}) return;
+ Playback(ivr/disabled);
+ return;
+
+ Set(s=~~s~~);
+ begin:
+ BackGround(ivr/mail);
+ WaitExten(20);
+
+ catch _. {
+
+ goto ${s}|begin;
+ }
+ return;
+} // macro IVRMail()
+
+macro IVRAlias() {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if ("${HASH(ext,Alias)}"="DISABLED") {
+  Playback(ivr/disabled);
+  return;
+ }
+ Set(s=~~s~~);
+ begin:
+ if (${hang}) return;
+ BackGround(ivr/alias);
+ WaitExten(20);
+
+ catch _. {
+  if (${REGEX("^[1-9][0-9]?$" ${EXTEN})}=1) {
+   &IVRCell(${EXTEN});
+  }
+  if (${REGEX("^[#]$" ${EXTEN})}=1) return;
+
+  goto ${s}|begin;
+ }
+ return;
+} // macro IVRAlias()
+
+macro IVRCell(cell) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Playback(ivr/cell);
+ SayNumber(${cell});
+
+ Set(s=~~s~~);
+ begin:
+ BackGround(ivr/alias_cell);
+ WaitExten(20);
+
+ catch _. {
+  if (${REGEX("^[0-9][0-9][0-9]+$" ${EXTEN})}=1) { // Write cell
+   Set(ODBC_ALIAS(${cid},${cell},${BIND})=${EXTEN});
+   Playback(beep);
+   return;
+  }
+  if (${REGEX("^[0]$" ${EXTEN})}=1) { // Drop cell
+   Set(ODBC_ALIAS(${cid},${cell},${BIND})=);
+   System(/bin/rm -f /var/spool/asterisk/aliaces/${CALLERID(num)}-${cell}.gsm);
+   Playback(beep);
+   return;
+  }
+  if (${REGEX("^[1]$" ${EXTEN})}=1) { // Check stored number
+   alias=;
+   NoOp(ALIAS=ODBC_ALIAS(${cid},${cell},${BIND}));
+   Set(HASH(alias)=${ODBC_ALIAS(${cid},${cell},${BIND})});
+   if ("${HASH(alias,Alias)}"!="") {
+    Playback(ivr/number);
+    &SayPhone(${HASH(alias,Alias)});
+   } else Playback(ivr/empty);
+  }
+  if (${REGEX("^[2]$" ${EXTEN})}=1) { // Store voice label
+   Record(/var/spool/asterisk/aliaces/${CALLERID(num)}-${cell}.gsm,,15,skip);
+   return;
+  }
+   if (${REGEX("^[3]$" ${EXTEN})}=1) { // Check voice label
+   Playback(/var/spool/asterisk/aliaces/${CALLERID(num)}-${cell});
+  }
+  if (${REGEX("^[*][1-9][0-9]?$" ${EXTEN})}=1) { // Swap cells
+   Set(alias=ODBC_ALIAS_SWAP(${cid},${cell},${EXTEN:1}),,${BIND});
+   Playback(beep);
+   return;
+  }
+
+  if (${REGEX("^[#]$" ${EXTEN})}=1) return;
+
+  goto ${s}|begin;
+ }
+
+ return;
+} // macro IVRCell()
+
+context autoinformer {
+ s => {
+  Set(CHANNEL(language)=ru);
+  Wait(1);
+  Playback(auto-informer/down_service-f14);
+  Wait(1);
+  Playback(auto-informer/down_service-f14);
+  Hangup;
+ }
+}
+
+macro do_inform(number) {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ Set(cb=/var/spool/asterisk/tmp/INFORMER-${number}.call);
+
+ System(/bin/echo "CallerID: INFORMER <3204918>" >> ${cb});
+ System(/bin/echo "Channel: DAHDI/g1/${number}" >> ${cb});
+ System(/bin/echo "WaitTime: 45" >> ${cb});
+ System(/bin/echo "Context:autoinformer" >> ${cb});
+ System(/bin/echo "Extension: s" >> ${cb});
+ System(/bin/echo "Priority: 1" >> ${cb});
+ System(/bin/echo "AlwaysDelete: yes" >> ${cb});
+ System(/bin/echo "Archive: no" >> ${cb});
+ System(/bin/mv ${cb} /var/spool/asterisk/outgoing/);
+ return;
+}
+
+macro route_by_cid(r1,r2,l) {
+// Check level of incoming CallerID
+// if level < l, then Dial(LOCAL/r1), else Dial(LOCAL/r2)
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ num=CALLERID(num);
+ Set(level=${ODBC_LEVEL(${num})});
+ if (${level}<${l}) { // Call from local zone
+  Dial(LOCAL/${r1}@iax/n,300,fg);
+ } else {
+  Dial(LOCAL/${r2}@iax/n,300,fg);
+ }
+ return;
+} // macro route_by_cid(r1,r2,l)
+
+macro balance(r1,r2,r3,r4) {
+// Pass a call to the route with min load
+// Use random route in case of equal load
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ route=${r1};
+ c1=${GROUP_COUNT(${r1}@0)}+${GROUP_COUNT(${r1}@1)};
+
+ if (${r2}) {
+  c2=${GROUP_COUNT(${r2}@0)}+${GROUP_COUNT(${r2}@1)};
+  if (${c2}<${c1}) {
+   c1=${c2};
+   route=${r2};
+  }
+//  NoOp(RAND = ${RAND(1,256)});
+  if (${c2}=${c1}) {
+   if (${RAND(1,256)}>128) route=${r2};
+  }
+ }
+ if (${r3}) {
+  c3=${GROUP_COUNT(${r3}@0)}+${GROUP_COUNT(${r3}@1)};
+  if (${c3}<${c1}) {
+   c1=${c3};
+   route=${r3};
+  }
+  if (${c3}=${c1}) {
+   if (${RAND(1,256)}>128) route=${r3};
+  }
+ }
+ if (${r4}) {
+  c4=${GROUP_COUNT(${r4}@0)}+${GROUP_COUNT(${r4}@1)};
+  if (${c4}<${c1}) {
+   c1=${c4};
+   route=${r4};
+  }
+  if (${c4}=${c1}) {
+   if (${RAND(1,256)}>128) route=${r4};
+  }
+ }
+ Dial(LOCAL/${route}@iax/n,300,fg);
+ return;
+} // macro balance(r1,r2,r3,r4)
+
+macro spare_route(r1,r2,r3,r4) {
+// Pass a call to the r1 route when it's free, or add spare route with min load
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ route=${r1};
+ c1=${GROUP_COUNT(${r1}@0)}+${GROUP_COUNT(${r1}@1)};
+ if (${c1}<1) {
+  Dial(LOCAL/${route}@iax/n,300,fg);
+  return;
+ }
+
+ if (${r2}) {
+  c2=${GROUP_COUNT(${r2}@0)}+${GROUP_COUNT(${r2}@1)};
+  if (${c2}<${c1}) {
+   c1=${c2};
+   route=${r2};
+  }
+ }
+ if (${r3}) {
+  c3=${GROUP_COUNT(${r3}@0)}+${GROUP_COUNT(${r3}@1)};
+  if (${c3}<${c1}) {
+   c1=${c3};
+   route=${r3};
+  }
+ }
+ if (${r4}) {
+  c4=${GROUP_COUNT(${r4}@0)}+${GROUP_COUNT(${r4}@1)};
+  if (${c4}<${c1}) {
+   c1=${c4};
+   route=${r4};
+  }
+ }
+ Dial(LOCAL/${r1}@iax/n&LOCAL/${route}@iax/n,300,fg);
+ return;
+} // macro spare_route(r1,r2,r3,r4)
+
+macro pause_route(p,r1,r2,r3) {
+// Route call to r1&r2&r3 after specified timeout p
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if (${r1}) Set(r=LOCAL/${r1}/n);
+ if (${r2}) Set(r=${r}&LOCAL/${r2}/n);
+ if (${r3}) Set(r=${r}&LOCAL/${r3}/n);
+
+ Wait(${p}); // RTFM Wait()!!!
+
+ if ("${r}"!="") {
+  Dial(${r},300,fg);
+ }
+ return;
+} // macro pause_route(p,r1,r2,r3)
+
+macro spare_exten(e,r,l1,l2) {
+// Make call to "r" if load(e)>="l1" and load(r)<="l2"
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Wait(3); // RTFM Wait()!!!
+ NoOp(LOAD1 = $[${GROUP_COUNT(${e}@0)}+${GROUP_COUNT(${e}@1)}]);
+ NoOp(LOAD2 = $[${GROUP_COUNT(${r}@0)}+${GROUP_COUNT(${r}@1)}]);
+ if($[${GROUP_COUNT(${e}@0)}+${GROUP_COUNT(${e}@1)}]<=${l1}) return;
+ if($[${GROUP_COUNT(${r}@0)}+${GROUP_COUNT(${r}@1)}]>${l2}) return;
+ Dial(LOCAL/${r}@iax/n,300,fg);
+} // macro spare_exten(e,r,l1,l2)
+
+macro trigger(var,play,enabled,disabled) {
+// Trigger "var" variable between "enabled" and "disabled" values (or 0 | 1 if omitted) in ODBC_VAR()
+// Play "trigger/${play}_1" | "trigger/${play}_0"
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if (${var}) {
+  if (("${enabled}"="")&("${disabled}"="")) {
+   enabled=1;
+   disabled=0;
+  }
+  Set(value=${ODBC_VAR(${var})});
+  if ("${value}"="${enabled}") Set(value=${disabled}); else Set(value=${enabled});
+  Set(ODBC_VAR(${var})=${value});
+  if (${play}) {
+   if ("${value}"="${enabled}") status=1; else status=0;
+   Answer;
+   Set(CHANNEL(language)=ru);
+   Playback(trigger/${play}_${status});
+  }
+ }
+ return;
+} // macro trigger(var,play,enabled,disabled)
+
+macro check_trigger(var,play,enabled,disabled) {
+// Trigger "var" variable between "enabled" and "disabled" values (or 0 | 1 if omitted) in ODBC_VAR()
+// Play "trigger/${play}_1" | "trigger/${play}_0"
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if (${var}) {
+  if (("${enabled}"="")&("${disabled}"="")) {
+   enabled=1;
+   disabled=0;
+  }
+  Set(value=${ODBC_VAR(${var})});
+  if (${play}) {
+   if ("${value}"="${enabled}") status=1; else status=0;
+   Answer;
+   Set(CHANNEL(language)=ru);
+   Playback(trigger/${play}_${status});
+  }
+ }
+ return;
+} // macro check_trigger(var,play,enabled,disabled)
+
+macro greating(play,var,r1,r2) {
+// Answer, play greating file switching by "var", then route to "r1"|"r2"
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Set(status=${ODBC_VAR(${var})});
+ if ("${status}"="") status=0;
+ if ("${r2}"="") Set(r2=${r1});
+
+ Answer;
+ Set(CHANNEL(language)=ru);
+ num=;
+ if (${play}) Read(num,greating/${play}_${status},3,,,1);
+ if (${num}) {
+  Set(LOCAL(num)=${ODBC_ALIAS_I(${leg2},${num})},,${BIND});
+  Set(LOCAL(level)=${ODBC_LEVEL(${num})});
+  if (${level}<3) { // Local call
+   Dial(LOCAL/${num}@iax/n,300,fg);
+   return;
+  }
+ }
+ if (${status}=0) Dial(LOCAL/${r1}/n,300,fg); else Dial(LOCAL/${r2}/n,300,fg);
+ return;
+} // macro greating(play,var,r1,r2)
+
+macro bad_route (did, cid1) {
+// Mask real "cid" with "cid1" for this "did".
+// Think twice before going this way!!!
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Set(CALLERID(number)=${cid1});
+ Set(cid=${cid1});
+ &make-call(${did},0);
+ return;
+} // macro bad_route (did, cid1)
+
+macro voice_mail (MailContext,MailBox,flags) {
+// Mailbox interface. Does recording when (CALLERID(number) != cid),
+// else redirects to VoiceMailMain(${cid}@${MailContext})
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Set(CHANNEL(language)=ru);
+
+ if ("${MailBox}"="") {
+  Set(MailBox=${cid});
+ }
+
+ if (${MAILBOX_EXISTS(${MailBox}@${MailContext})}) {
+  if ("${CALLERID(number)}"!="${MailBox}") { // Record message
+   VoiceMail(${MailBox}@${MailContext},${flags});
+  } else { // Pass to mailbox
+   VoiceMailMain(s${MailBox}@${MailContext});
+  }
+ } else { // No mailbox attached
+  Playback(invalid);
+ }
+ return;
+} // macro voice_mail (MailContext)
+
+macro progress(r,moh) {
+// Play moh while dialing r without answer
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ M=;
+ if ("${moh}"!="") {
+  Progress();
+  Set(CHANNEL(language)=ru);
+  Set(M=m(${moh}));
+  Set(CHANNEL(musicclass)=${moh});
+ }
+ if ("${r}"!="") {
+  Dial(LOCAL/${r}/n,300,fg${M});
+ }
+ return;
+} // macro progress(r,moh)
+
+macro route_by_list(l,ext,r) {
+// Check ${cid} for existence in CallList ${l}
+// Call exten ${ext} if so, else dial ${r}
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ ClearHash(list);
+ Set(HASH(list)=${ODBC_CALL_IN_LIST(${l},${cid})});
+ if (${HASH(list,EXISTS)}=1) { // Call exten ${ext}
+  ClearHash(res);
+  Set(HASH(res)=${ODBC_EXTEN(${dnid})},${BIND});
+  if ("${HASH(res,Exten)}"!="") {
+   &exten(${res});
+  }
+ } else { // dial ${r} for local callers, call exten ${ext} otherwise
+  num=CALLERID(num);
+  Set(level=${ODBC_LEVEL(${num})});
+  if (${level}<3) { // Call from local zone
+   Dial(LOCAL/${r}@iax/n,300,fg);
+  } else {
+   &exten(${res});
+  }
+ }
+ return;
+} // macro route_by_list(l,ext,r)
+
+macro play(file,count) {
+// Play ${file} ${count} times (if set)
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ i=0;
+ if ("${count}"="") {
+  count=1;
+ }
+ while (${i} < ${count}) {
+  Set(CHANNEL(language)=ru);
+  Playback(${file});
+  Wait(1);
+  i=${i}+1;
+ }
+} // macro play(file,count)

@@ -1,0 +1,92 @@
+
+// puts data from parametrised with channel variable GET query into named channel hash
+//parameter should be one now and last in string((( to do - "real parameters"
+// macro is using 	FUNC_CURL
+// without Parameter - GET query is not parametrized
+// without Url - create a specified hash in channel
+// without Hash - works as switchpoint
+// later should be rewrited as tangle with curl parameters
+
+macro WebExternHash(Next,Hash,Url,GetParam) {
+ NoOp(${leg1}>>${leg2} FUNCTION WebExternHash(${Next},${Hash},${Url},${GetParam}));
+
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+//санация параметров
+ Set(RESULT=Invalid Spec);
+ if ("${Next}"="") return;
+// Set(RESULT=Invalid Func);
+
+ RESULT=OK;
+
+
+//пишем макрос тут
+
+//приводим параметры к локально изменяемым переменным и подставляем значения
+
+// самая главная переменная - идентификатор следующей функции.
+ Set(LOCAL(fn)=${Next});
+
+// хэш, куда будет засунуты данные с веба. создается, если указан в параметрах
+
+if ("${Hash}"="") {
+    NoOp(maxx:WebGetHash: no hash specified);
+    }else{
+    NoOp(maxx:WebGetHash: hash ${Hash} is specified);
+}
+
+if ("${Url}"="") {
+    NoOp(maxx:WebGetHash: no url specified);
+    }else{
+    NoOp(maxx:WebGetHash: url ${Url} is specified);
+}
+
+if ("${GetParam}"="") {
+    NoOp(maxx:WebGetHash: no parameter specified);
+    }else{
+    NoOp(maxx:WebGetHash: parameter ${GetParam} is specified);
+}
+
+//Set(LOCAL(GP)=${${GetParam}});
+//Set(LOCAL(GP)=9217445556);
+Set(LOCAL(GP)=9313678387);
+
+//NoOp(maxx:WebGetHash: parameter is ${GP});
+
+
+//главное колдуньство
+Set(CURLOPT(httptimeout)=5);
+Set(CURLOPT(hashcompat)=yes);
+Set(HASH($[__${Hash}])=${CURL(${Url}${GP})});
+
+//DumpChan();
+
+
+// приведем урл к состоянию неубивания CDR)))
+
+Set(LOCAL(Url)=${CUT(Url,@,2)});
+Set(Url=${CUT(Url,?,1)});
+
+Set(LOCAL(LUrl=${SHELL(echo ${CUT(Url,?,1)} | cut -d? -f1 | sed "s/.*\///")}));
+
+//NoOp(maxx:WebGetHash: ${LUrl});
+
+
+// строку ниже раскомментировать, чтобы успеть вырубить консоль астера и удобно пялиться в результаты
+// Wait(2);
+
+
+//NoOp(DATA=${DATA},FUNC=${CONTEXT};Hash=${Hash};Url=${LUrl};GetParam=${GetParam});
+ Set(DATA=${DATA},FUNC=${CONTEXT};Hash=${Hash};Url=${LUrl};GetParam=${GetParam});
+//   Set(DATA=${DATA},FUNC=${CONTEXT};Hash=${Hash};GetParam=${GetParam});
+
+ Set(CDR(x-data)={${DATA:1}});
+
+ #include "ael/func/FUNC.INC"
+ return;
+} // macro WebExternHash(fn,Hash,Url,Parameter)
+
+
+

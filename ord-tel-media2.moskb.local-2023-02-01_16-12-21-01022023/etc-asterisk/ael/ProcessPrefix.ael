@@ -1,0 +1,30 @@
+// !!! OLD routing schema: old PBX's governor etc.
+macro process_prefix() {
+// Wait for extension when some prefix is pressed
+ Answer();
+//  Set(CHANNEL(language)=${DEFAULT_LANG});
+ Set(TIMEOUT(digit)=3);
+ Set(dnid=${CALLERID(dnid)});
+ Set(CHANNEL(musicclass)=);
+ WaitExten(60,m(beep));
+ return;
+
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+
+ catch _. {
+  if ("${dnid}"="${EXTEN}") return; // Prevent simple looping here
+
+  Set(LOCAL(prefix-country)=${ODBC_CONST(prefix-country)});
+  if ("${prefix-country}"="") Set(LOCAL(prefix-country)=8);
+  if ("${dnid}"!="${prefix-country}") dnid=;
+
+  Set(CALLERID(dnid)=${dnid}${EXTEN});
+  Set(dnid=${CALLERID(dnid)});
+  Set(CHANNEL(musicclass)=${HASH(ext,MOH)});
+  goto outgoing-call|s|1;
+ }
+ return;
+} // macro process_prefix

@@ -1,0 +1,12 @@
+// BlackList implementation
+context macro-black-list {
+ s => {
+//  NoOp(${leg1} >> ${n2}@${BIND});
+  if ("${BlackList}"="") {
+   Set(ODBC_BL(${n2},${BIND})=${leg1},${record});
+   &Event(blacklist,${CONTEXT});
+   Set(BlackList=1);
+   Playback(beep);
+  }
+ }
+}

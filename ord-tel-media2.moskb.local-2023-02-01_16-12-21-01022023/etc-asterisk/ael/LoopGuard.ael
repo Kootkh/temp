@@ -1,0 +1,26 @@
+// Cross-PBX loop prevention (SIP and IAX only)
+macro LoopGuard() {
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ x_loop=;
+ Set(LOCAL(x_loop)=${SIP_HEADER(X-LongLoop)});
+ if ("${x_loop}"="") Set(LOCAL(x_loop)=${IAXVAR(X-LongLoop)});
+// Set(LOCAL(hostname)=${SHELL(/bin/echo -n `/bin/hostname -f | /usr/bin/tr '.' '#'`)});
+Set(LOCAL(hostname)=${SHELL(/bin/echo -n `/bin/hostname | /usr/bin/tr '.' '#'`)});
+
+ if (${REGEX("#${leg2}@${hostname}#" ${x_loop})}=0) {
+  Set(LOCAL(x_loop)=${x_loop} #${leg2}@${hostname}#);
+  SIPaddheader(X-LongLoop:${x_loop});
+  Set(IAXVAR(X-LongLoop)=${x_loop});
+ } else {
+  Log(ERROR, LoopGuard found my "${leg2}@${hostname}" in path "${x_loop}"!!!);
+  NoOp(${leg1}>>${leg2} FUNCTION ==LOOP DETECTED==(${leg2}@${hostname}));
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup();
+ }
+ return;
+}

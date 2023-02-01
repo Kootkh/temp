@@ -1,0 +1,35 @@
+// !!! OLD routing scheme: calls from ZAPTEL|DAHDI
+context zap {
+// catch all into new context with the purpose to enable special extensions
+ h => {
+  NoOp(CHANNELS zap = ${CHANNEL} ${n1}>>${n2});
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup();
+ }
+ _. => {
+  __n1 = ${CALLERID(num)};
+  NoOp(CHANNELS zap = ${CHANNEL} ${n1}>>${n2});
+  &call-entry(${CONTEXT});
+  // Leg definitions must be stored overall call processing!
+  if ("${leg1}"="") Set(__leg1=${CALLERID(num)});
+  if ("${leg2}"="") Set(__leg2=${CALLERID(dnid)}); // In most cases, must be ${EXTEN} in entry context
+  if ("${leg2}"="") Set(__leg2=${EXTEN}); // In most cases, must be ${EXTEN} in entry context
+  if ("${uniqueid}"="") Set(__uniqueid=${CDR(uniqueid)});
+
+  Set(CHANNEL(accountcode)=${leg2});
+  Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>ROOT);
+  Set(CHANNEL(amaflags)=billing);
+
+  if ("${dnid}"="") goto transfer|${EXTEN}|1; // TRANSFER TRAP
+  if (${incoming}=1) {
+   goto incoming-call|s|1;
+  } else {
+   Set(_PARENT=${cid});
+   Set(GROUP(O)=${cid});
+
+   goto outgoing-call|s|1;
+  }
+ }
+} // context zap

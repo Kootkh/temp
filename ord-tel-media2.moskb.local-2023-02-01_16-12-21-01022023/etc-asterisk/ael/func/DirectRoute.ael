@@ -1,0 +1,25 @@
+// Try to route the call to the number in variable
+macro DirectRoute(Var) {
+ NoOp(FUNCTION DirectRoute(${Var}=${${Var}}));
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if ("${Var}"="") {
+  Set(RESULT=Invalid Var);
+  return;
+ }
+
+ Set(LOCAL(number)=${${Var}});
+ if ("${number}"="") {
+  Set(RESULT=Empty value);
+  return;
+ }
+
+ RESULT=OK;
+
+ Set(level=${ODBC_LEVEL(${number})});
+ &RouteCall(${number},${level});
+
+ return;
+} // macro DirectRoute(Var)

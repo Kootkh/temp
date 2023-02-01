@@ -1,0 +1,48 @@
+// !!! OLD routing schema: AutoDial implementation
+context autodial { // AutoDial call passes through this context
+ h => {
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  switch ("${DIALSTATUS}")
+  {
+   case "ANSWER": { Set(ODBC_AUTO_DIAL(${cid})=); break; } // Drop auto-dial
+   case "BUSY": { Set(ODBC_AUTO_DIAL_RESULT(${cid})=Busy); break; }
+   case "NOANSWER": { Set(ODBC_AUTO_DIAL_RESULT(${cid})=NoAnswer); break; }
+   default: { Set(ODBC_AUTO_DIAL(${cid})=); break; } // Drop auto-dial
+  }
+ }
+
+ _X. => {
+  NoOp(${CALLERID(number)}>>${EXTEN});
+//  Set(dnid=${ODBC_AUTO_DIAL(${EXTEN})});
+  Set(cid=${CALLERID(number)});
+  Set(CALLERID(dnid)=${EXTEN});
+  NoOp(${EXTEN}===${DEVICE_STATE(Custom:${EXTEN})});
+  NoOp(${cid}===${DEVICE_STATE(Custom:${cid})});
+  if (("${DEVICE_STATE(Custom:${EXTEN})}"!="NOT_INUSE") || ("${DEVICE_STATE(Custom:${cid})}"!="NOT_INUSE"))
+  {
+   Set(DIALSTATUS=BUSY);
+   Hangup;
+  }
+  Set(CHANNEL(language)=${DEFAULT_LANG});
+  Set(__NO_TRANSFER=1);
+  Dial(LOCAL/${cid}@iax/n,25,fg);
+//  Dial(DAHDI/g1/${HASH(Msg,Exten)},${HASH(Lst,WaitTime)},fg);
+  Hangup;
+ }
+} // context autodial
+
+context autodial-dst { // AutoDial call passes through this context
+ h => {
+  NoOp(autodial-dst hangup);
+ }
+
+ _X. => {
+  NoOp(${CALLERID(number)}>>${EXTEN});
+  Set(CHANNEL(language)=${DEFAULT_LANG});
+  Playback(auto_dial_progress);
+  Set(__NO_TRANSFER=1);
+  Dial(LOCAL/${EXTEN}@iax/n,25,fg);
+  Hangup;
+ }
+} // context autodial-dst

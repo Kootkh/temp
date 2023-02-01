@@ -1,0 +1,52 @@
+#!/bin/sh
+umask 177
+SYSADMIN="ds@miwan.me"
+
+HOST=`/bin/hostname`
+FQDN=`/bin/hostname -f`
+
+SIP="/usr/sbin/asterisk -rx 'sip show peers' | /bin/egrep 'UNREACHABLE|UNKNOWN'"
+IAX="/usr/sbin/asterisk -rx 'iax2 show peers' | /bin/grep 'UNREACHABLE'"
+
+f1=''
+f2=''
+
+while [ 1 = 1 ]
+do
+ sleep 60
+
+ dt="/bin/date +%d.%m.%Y-%H:%M:%S"
+
+# SIP
+ err=`/usr/sbin/asterisk -rx 'sip show peers' | /bin/egrep 'UNREACHABLE|UNKNOWN'`
+ # grep contains matches
+ if [ $? -eq 0 ]; then
+  if [ "${f1}" != "${err}" ]; then
+
+cat << EOF | /usr/local/sbin/mailer -f "${HOST} <alive@${FQDN}>" -t "PBX maintainers <${SYSADMIN}>" -s "${HOST} SIP PEER(S) FAILED!"
+At [`$dt`] ${HOST}>"sip show peers" output was:
+Name/username              Host             Dyn FRP_ACL Port    Status       Realtime
+${err}
+EOF
+
+  fi
+  f1=${err}
+ fi
+
+# IAX
+ err=`/usr/sbin/asterisk -rx 'iax2 show peers' | /bin/grep 'UNREACHABLE'`
+ # grep contains matches
+ if [ $? -eq 0 ]; then
+  if [ "${f2}" != "${err}" ]; then
+
+cat << EOF | /usr/local/sbin/mailer -f "${HOST} <alive@${FQDN}>" -t "PBX maintainers <${SYSADMIN}>" -s "${HOST} IAX PEER(S) FAILED!"
+At [`$dt`] ${HOST}>"iax2 show peers" output was:
+Name/Username    Host                 Mask             Port          Status
+${err}
+EOF
+
+  fi
+  f2=${err}
+ fi
+
+done

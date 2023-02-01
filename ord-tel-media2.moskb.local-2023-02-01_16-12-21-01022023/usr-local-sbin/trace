@@ -1,0 +1,4 @@
+#!/bin/bash
+umask 177
+
+stdbuf -oL /usr/sbin/asterisk -rvvv 2>&1 | stdbuf -oL grep FUNCTION | stdbuf -oL egrep -o '"[^"]+"\)'| stdbuf -oL sed 's/^"// ; s/")$//' | stdbuf -oL egrep -v '^$' | stdbuf -oL sed 's/ FUNCTION / -> /' | egrep --color=auto "$1"

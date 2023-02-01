@@ -1,0 +1,32 @@
+// DialPlan processing contexts
+// !!! OLD routing scheme: cross-PBX calls with jitter
+context jb {
+// iax calls with jitter must come in here
+ h => {
+  NoOp(QOS = "${RTPAUDIOQOS}");
+  NoOp(CHANNELS iax-call hang = ${CHANNEL} :: ${uniqueid}>${leg1}>${leg2}>${dnid});
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup();
+ }
+ _. => { // It seems that such calls must be routed out with no restrictions...
+  NoOp(CHANNELS iax-call start = ${CHANNEL} :: ${uniqueid}>${leg1}>${leg2}>${dnid});
+  &call-entry(${CONTEXT}); // Note that this is not "incoming" or "outgoing" call
+  // Leg definitions must be stored overall call processing!
+  if ("${leg1}"="") Set(__leg1=${CALLERID(num)});
+  if ("${leg2}"="") Set(__leg2=${CALLERID(dnid)}); // In most cases, must be ${EXTEN} in entry context
+  if ("${leg2}"="") Set(__leg2=${EXTEN}); // In most cases, must be ${EXTEN} in entry context
+  if ("${uniqueid}"="") Set(__uniqueid=${CDR(uniqueid)});
+
+  Set(CHANNEL(accountcode)=${leg2});
+  Set(CDR(userfield)=${uniqueid}>${leg1}>${leg2}>ROOT);
+  Set(CHANNEL(amaflags)=billing);
+
+//  Set(dnid=${EXTEN}); // CALLERID(dnid) is empty while transferring through iax for some reason!
+  // So, I'm just trying to put such call into suitable route
+  Set(_ALLOW_TRANSFER=${ALLOW_TRANSFER});
+
+  Dial(LOCAL/${EXTEN}@iax/nj,300,fg);
+ }
+} // context jb

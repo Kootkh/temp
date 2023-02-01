@@ -1,0 +1,90 @@
+// Send File via email. Remove it on success.
+macro MailFile(From,To,Subject,File) {
+ NoOp(${leg1}>>${leg2} FUNCTION MailFile(${From},${To},${Subject},${File}));
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ Set(DATA=${DATA},FUNC=${CONTEXT});
+ Set(CDR(x-data)={${DATA:1}});
+
+ Set(RESULT=Invalid To);
+ if ("${To}"="") return;
+
+ if ("${From}"="") {
+  Set(LOCAL(From)=pbx@`/bin/hostname -f`);
+ }
+
+ RESULT=OK;
+
+ System(/usr/local/sbin/mailer -f "${From}" -t "${To}" -s "${Subject}" -a "${File}" --charset "KOI8-R" -b "Запись во вложении.");
+
+ if ("${SYSTEMSTATUS}"="SUCCESS") {
+  System(/bin/rm -f "${File}");
+ }
+} // macro MailFile(From,To,Subject,File)
+
+// Robot for interview. Record answers, then send to mail.
+// insert into "Func" values ('090','ALL',NULL,'Questionnaire','question1:question2','ds@vo-ix.ru',10);
+macro Questionnaire(Questions,Mail,Timeout) {
+ NoOp(${leg1}>>${leg2} FUNCTION Questionnaire(${Questions},${Mail},${Timeout}));
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  StopMonitor;
+  System(cat /var/spool/asterisk/tmp/${leg1}-*.alaw | /usr/bin/sox -t 'raw' -r 8000 -c 1 -b 8 -A - -t raw -b 16 - | /usr/bin/lame -r -s 8 -m m --cbr -b 32 - "/var/spool/asterisk/tmp/${leg1}.mp3" && rm -f /var/spool/asterisk/tmp/${leg1}-*.alaw);
+  //System(cat /var/spool/asterisk/tmp/${leg1}-*.wav | /usr/bin/sox -t 'raw' -r 8000 -c 1 -b 8 -A - -t raw -b 16 - | /usr/bin/lame -r -s 8 -m m --cbr -b 32 - "/var/spool/asterisk/tmp/${leg1}.mp3" && rm -f /var/spool/asterisk/tmp/${leg1}-*.wav);
+  &MailFile("Анкета ${leg1} <quest@`/bin/hostname -f`>","${Mail}","Анкета от #${leg1}","/var/spool/asterisk/tmp/${leg1}.mp3");
+  return;
+ }
+ Set(CHANNEL(language)=${DEFAULT_LANG});
+ Answer;
+
+ Set(DATA=${DATA},FUNC=${CONTEXT});
+ Set(CDR(x-data)={${DATA:1}});
+
+ for (LOCAL(i)=1; ${i}<=${FIELDQTY(Questions,:)}; LOCAL(i)=${i}+1) {
+  Playback(${CUT(Questions,:,${i})});
+  Monitor(alaw,/var/spool/asterisk/tmp/${leg1}-${i},o);
+  Read(LOCAL(num),silence/2,1,,,${Timeout});
+  StopMonitor;
+ }
+
+ System(cat /var/spool/asterisk/tmp/${leg1}-*.alaw | /usr/bin/sox -t 'raw' -r 8000 -c 1 -b 8 -A - -t raw -b 16 - | /usr/bin/lame -r -s 8 -m m --cbr -b 32 - "/var/spool/asterisk/tmp/${leg1}.mp3" && rm -f /var/spool/asterisk/tmp/${leg1}-*.alaw);
+ &MailFile("Анкета ${leg1} <quest@`/bin/hostname -f`>","${Mail}","Анкета от #${leg1}","/var/spool/asterisk/tmp/${leg1}.mp3");
+ return;
+} // macro Questionnaire(Questions,Mail,Timeout)
+
+
+// Record voice message, then send to mail.
+// insert into "Func" values ('090','ALL',NULL,'VoiceMail','beep','ds@vo-ix.ru',120);
+macro VMail(Mail,MaxLength,Prompt,fn) {
+ NoOp(${leg1}>>${leg2} FUNCTION VMail(${Mail},${MaxLength},${Prompt},${fn}));
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  StopMonitor;
+  System(cat /var/spool/asterisk/tmp/${leg1}-${leg2}-*.alaw | /usr/bin/sox -t 'raw' -r 8000 -c 1 -b 8 -A - -t raw -b 16 - | /usr/bin/lame -r -s 8 -m m --cbr -b 32 - "/var/spool/asterisk/tmp/${leg1}-${leg2}.mp3" && rm -f /var/spool/asterisk/tmp/${leg1}-${leg2}-*.alaw);
+  &MailFile("Голосовая почта <vm@`/bin/hostname -f`>","${Mail}","Голосовое сообщение от #${leg1} для #${leg2}","/var/spool/asterisk/tmp/${leg1}-${leg2}.mp3");
+  return;
+ }
+ Set(CHANNEL(language)=${DEFAULT_LANG});
+ Answer(1000);
+
+ Set(DATA=${DATA},FUNC=${CONTEXT});
+ Set(CDR(x-data)={${DATA:1}});
+
+ if ("${MaxLength}"="") Set(LOCAL(MaxLength)=180);
+ if ("${Prompt}"="") Set(LOCAL(Prompt)=vm-intro&beep:vm-thanks);
+
+ if ("${CUT(Prompt,:,1)}"!="") Playback(${CUT(Prompt,:,1)}); // "Leave mail"
+ Monitor(alaw,/var/spool/asterisk/tmp/${leg1}-${leg2},o);
+ Read(LOCAL(num),silence/2,1,,,${MaxLength});
+ StopMonitor;
+
+ System(cat /var/spool/asterisk/tmp/${leg1}-${leg2}-*.alaw | /usr/bin/sox -t 'raw' -r 8000 -c 1 -b 8 -A - -t raw -b 16 - | /usr/bin/lame -r -s 8 -m m --cbr -b 32 - "/var/spool/asterisk/tmp/${leg1}-${leg2}.mp3" && rm -f /var/spool/asterisk/tmp/${leg1}-${leg2}-*.alaw);
+ &MailFile("Голосовая почта <vm@`/bin/hostname -f`>","${Mail}","Голосовое сообщение от #${leg1} для #${leg2}","/var/spool/asterisk/tmp/${leg1}-${leg2}.mp3");
+ if ("${CUT(Prompt,:,2)}"!="") Playback(${CUT(Prompt,:,2)}); // "Thanks"
+
+ if ("${fn}"="") return;
+ #include "ael/func/FUNC.INC"
+ return;
+} // macro VMail(Mail,MaxLength,Prompt,fn)

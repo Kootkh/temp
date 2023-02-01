@@ -1,0 +1,65 @@
+#!/bin/sh
+# wav2mp3 – create stereo mp3 out of two mono wav-files
+# source files will be deleted
+#
+# usage: wav2mp3 <filename>
+#.
+# filename-in.wav + filename-out.wav -->  filename.mp3 (stereo)
+
+# location of SOX (SOXMIX no longer needed)
+# (set according to your system settings, eg. /usr/bin)
+SOX=/usr/bin/sox
+# lame is only required when sox does not support liblame
+#LAME=/usr/local/bin/lame
+
+# command line variables
+LEFT=$1-in.wav
+RIGHT=$1-out.wav
+OUT=$1
+
+#test if input files exist
+test ! -r $LEFT && exit 21
+test ! -r $RIGHT && exit 22
+echo $LEFT
+echo $RIGHT
+
+
+LEFTSIZE=`du $LEFT`
+#LEFTSIZE=`du $LEFT | tr -s ' ' | cut -d ' ' -f 1`
+RIGHTSIZE=`du $RIGHT`
+
+#echo $LEFTSIZE
+#echo $RIGHTSIZE
+
+LSIZEB=`echo $LEFTSIZE | tr -s ' ' | cut -d ' ' -f 1`
+#echo $LSIZEB
+RSIZEB=`echo $RIGHTSIZE | tr -s ' ' | cut -d ' ' -f 1`
+#echo $RSIZEB
+
+
+#if [ $LSIZEB -gt 4 ] && [ $RSIZEB -gt 4 ] ; then
+#if [ $LSIZEB -gt 4 ] || [ $RSIZEB -gt 4 ] ; then
+#echo "all OK\n"
+# $SOX -M $LEFT $RIGHT $OUT.mp3
+# test -r $OUT.mp3 && rm $LEFT $RIGHT
+# /usr/bin/perl /usr/local/sbin/wav_upload.pl $OUT.mp3
+ $SOX -M $LEFT $RIGHT $OUT.wav
+ test -r $OUT.wav && rm $LEFT $RIGHT
+ /usr/bin/perl /usr/local/sbin/wav_upload.pl $OUT.wav
+#else
+#echo "too small\n"
+rm $LEFT $RIGHT
+#fi
+
+
+
+
+# combine and compress
+# this requires sox to be built with mp3-support.
+# To see if there is support for Mp3 run sox -h and
+# look for it under the list of supported file formats as “mp3”.
+#$SOX -M $LEFT $RIGHT $OUT.mp3
+
+#remove input files if successfull
+#test -r $OUT.mp3 && rm $LEFT $RIGHT
+# eof

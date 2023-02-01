@@ -1,0 +1,23 @@
+// Switch between F_gt and F_le by CallLevel(leg1) > level
+// insert into "Func" values ('090','ALL',NULL,'CallLevel','Func(label1)','Func(label2)',3);
+macro CallLevelI(F_gt,F_le,level) {
+ NoOp(${leg1}>>${leg2} FUNCTION CallLevelI(${F_gt},${F_le},${level}));
+ catch h { // without a catch, dialplan stops execution on hangup !!!
+  hang=1;
+  return;
+ }
+ if ("${level}"="") Set(LOCAL(level)=5);
+ if ("${F_le}"="") Set(LOCAL(F_le)=${F_gt});
+
+ Set(LOCAL(lvl)=${ODBC_LEVEL(${leg1},,INGRESS CALL)});
+ if (${lvl}>${level}) {
+  Set(LOCAL(fn)=${F_gt});
+ } else Set(LOCAL(fn)=${F_le});
+
+ Set(DATA=${DATA},FUNC=${CONTEXT};LEVEL=${lvl});
+ Set(CDR(x-data)={${DATA:1}});
+
+ if ("${fn}"="") return;
+ #include "ael/func/FUNC.INC"
+ return;
+} // macro CallLevel(F_gt,F_le,level)

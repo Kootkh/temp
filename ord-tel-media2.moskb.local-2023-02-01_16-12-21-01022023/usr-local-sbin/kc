@@ -1,0 +1,7 @@
+#!/bin/bash
+
+
+service kamailio stop
+service kamailio start
+sleep 0.5
+echo -n > /var/log/kamailio.log

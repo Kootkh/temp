@@ -1,0 +1,72 @@
+#!/usr/bin/python -u
+# -*- coding: utf-8 -*-
+
+# Read line-by line input from tcp connection, then store it in proper named log
+# Copyright (C) 2014 Dmitry Svyatogorov ds@vo-ix.ru
+
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU Affero General Public License as
+#    published by the Free Software Foundation, either version 3 of the
+#    License, or (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU Affero General Public License for more details.
+#
+#    You should have received a copy of the GNU Affero General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import subprocess
+import re
+import time
+import os
+import signal
+
+#import socket
+#import threading
+import SocketServer
+
+# nc -l 5101
+
+if (len(sys.argv) < 2):
+  path = '/var/log/cdr/'
+else:
+  path = sys.argv[1].rstrip('/') + '/'
+
+class MyTCPHandler(SocketServer.StreamRequestHandler):
+
+  def handle(self):
+    # self.rfile is a file-like object created by the handler;
+    # we can now use e.g. readline() instead of raw recv() calls
+    self.data = self.rfile.readline()
+
+    if (self.data != ''):
+      fpath = path + self.client_address[0] + '/'
+      if (not os.path.exists(fpath)):
+        os.makedirs(fpath)
+      fname = fpath + time.strftime('%Y%m%d.log', time.localtime() )
+
+      f = open(fname, 'a')
+      f.write(self.data)
+      f.flush()
+      f.close()
+
+#    self.wfile.write(self.data.upper())
+
+if __name__ == "__main__":
+  HOST, PORT = "0.0.0.0", 5101
+
+  print time.strftime('%d.%m.%Y %H:%M:%S', time.localtime() ) + ': Logger started'
+
+  def signal_handler(signal, frame):
+    print time.strftime('%d.%m.%Y %H:%M:%S', time.localtime() ) + ': Logger terminated'
+    sys.exit(0)
+
+  signal.signal(signal.SIGINT, signal_handler)
+
+  server = SocketServer.TCPServer((HOST, PORT), MyTCPHandler)
+  server.serve_forever()
+
+sys.exit()

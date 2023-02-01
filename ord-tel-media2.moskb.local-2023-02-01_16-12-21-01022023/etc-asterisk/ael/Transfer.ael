@@ -1,0 +1,139 @@
+// DialPlan processing contexts
+// Kek
+// !!! OLD routing scheme: place for call transfers (GLOBAL::TRANSFER_CONTEXT=transfer;)
+context transfer { // Processing for transfer calls
+ h => {
+//NoOp(maxx: transfer, begin of h extension);
+//NoOp(CHANNELS transfer = ${CHANNEL} ${n1}>>${n2});
+  &InUse(${lcid});
+//  Set(CDR(pbxserver)=${FILTER(0-9a-zA-Z\.\-,${SHELL(hostname)})});
+  Set(CDR(pbxserver)=${PBXSERVER});
+  &Event(hang,${CONTEXT});
+  Hangup();
+ }
+
+ _. => {
+//  NoOp(maxx: transfer, begin of _. extension);
+  NoOp(kai transfer 14: callerid(rdnis) ${CALLERID(RDNIS)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN});
+  NoOp(roman says 1: callerid(rdnis) ${CALLERID(RDNIS)});
+  &Event(transferbegin,${CONTEXT});
+  if ("${LegB}"="1") {
+   Set(__cid=${dnid});
+  } else {
+   Set(__cid=${cid});
+  }
+  NoOp(CID#1=${cid});
+
+  if ("${BLINDTRANSFER}"!="") {  // Blind
+   NoOp(kai transfer 25: callerid(rdnis) ${CALLERID(RDNIS)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN} BLINDTRANSFER ${BLINDTRANSFER});
+   NoOp(roman says 2: callerid(rdnis) ${CALLERID(RDNIS)});
+   Set(tr=${CUT(BLINDTRANSFER,-,1)});
+   Set(tr=${CUT(tr,/,2)});
+
+   if ("${CUT(tr,+,1)}"!="") {
+    Set(__BIND=${CUT(tr,+,1)});
+    Set(__cid=${CUT(tr,+,2)});
+   }
+   Set(HASH(trnf)=${ODBC_EXTEN(${cid},${BIND})});
+
+   Set(HASH(ext)=${ODBC_EXTEN(${CALLERID(num)},${BIND})});
+   if ("${HASH(ext,Exten)}"="${CALLERID(num)}") {
+    if ("${BIND}"!="") {
+     Set(lcid=${BIND}+${CALLERID(num)});
+    } else {
+     lcid=${CALLERID(num)};
+    }
+
+   }
+   Set(ALLOW_TRANSFER=${HASH(trnf,FeatureTransfer)});
+   //Set(tr=${FILTER(0-9,${tr})});
+
+   //CALLERID(num)=${tr};
+   Set(CALLERID(RDNIS)=${CHANNEL(ConnectedLineIDNum)});
+ //DumpChan();
+   NoOp(roman says 3.5: this => ${CHANNEL(ConnectedLineIDNum)});
+   BLINDTRANSFER=;
+   Set(CHANNEL(language)=${DEFAULT_LANG});
+   Playback(transfer);
+   NoOp(roman says 3: callerid(rdnis) ${CALLERID(RDNIS)});
+   NoOp(kai transfer 50: callerid(rdnis) ${CALLERID(rdnis)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN} BLINDTRANSFER ${BLINDTRANSFER} tr ${tr} ConnectedLineIDNum ${CHANNEL(ConnectedLineIDNum)});
+  }
+
+   NoOp(roman says 4: callerid(rdnis) ${CALLERID(RDNIS)});
+NoOp(kai transfer 51: call callerid(rdnis) ${CALLERID(RDNIS)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN});
+
+  if ("${TRANSFERERNAME}"!="") { // atxfr
+//   ImportVar(cidX=${TRANSFERERNAME},cid);
+//   if ("${cidX}"="") {
+//    Set(cidX=${CUT(TRANSFERERNAME,-,1)});
+//    Set(cidX=${CUT(cidX,/,2)});
+//   }
+
+   &call-entry(${CONTEXT});
+   Set(ALLOW_TRANSFER=${HASH(ext,FeatureTransfer)});
+  } else {
+   &call-entry(${CONTEXT});
+  }
+  Set(__dnid=${EXTEN});
+  if ("${CUT(EXTEN,+,2)}"!="") {
+   Set(__dnid=${CUT(EXTEN,+,2)});
+  }
+
+   NoOp(roman says 5: callerid(rdnis) ${CALLERID(RDNIS)});
+   NoOp(kai transfer 70: callerid(rdnis) ${CALLERID(RDNIS)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN});
+
+//  if ("${ALLOW_TRANSFER}"!="1") {
+//   Playback(call-fwd-prohibyted);
+//   Hangup();
+//  }
+WEB:
+  &InUse(${cid});
+  //&QState(${QUEUE},0);
+  DEVICE_STATE(Custom:Q*${cid}*${QUEUE})=NOT_INUSE;
+
+  Set(__LoopTransfer=); // Reset loop counter
+  Set(_TR_CID=${TR_CID} ${CALLERID(num)});
+
+  Set(__leg2=${EXTEN}); // For LoopGuard etc.
+  Set(incoming=0);
+//  Set(R=r); // Do ringing during transfer
+  chan_local=1;
+  __transfer=1;
+
+  if ("${PARENT}"="") Set(PARENT=${cid});
+  Set(GROUP(T)=${PARENT});
+//  Set(OUTBOUND_GROUP=${PARENT}@T2);
+
+  NoOp(roman says: Channel ${CHANNEL});
+
+  Set(DATA=${DATA},CONTEXT=transfer;CID=${cid};DID=${dnid});
+  Set(CDR(x-data)={${DATA:1}});
+  NoOp(roman says 6: callerid(rdnis) ${CALLERID(RDNIS)});
+//  NoOp(kai transfer 97: callerid(rdnis) ${CALLERID(RDNIS)}  callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN});
+
+  &Event(transfer,${CONTEXT});
+  NoOp(CID#2=${cid});
+  NoOp(roman says 7: callerid(rdnis) ${CALLERID(RDNIS)});
+  NoOp(kai transfer 101: callerid(rdnis) ${CALLERID(RDNIS)} callerid(num) ${CALLERID(num)} callerid(name) ${CALLERID(name)} to ${EXTEN});
+  //DumpChan();
+  Set(__isTransfer=yes);
+  NoOp(roman says: isTransfer: isTransfer);
+  goto outgoing-call|s|1;
+
+// Web-transfers. LegB must be transferred from LegA and wise versa.
+B:
+  Set(__cid=${cid});
+  Set(__dnid=${EXTEN});
+  Set(__from=transfer);
+  Set(tr=${cid});
+  goto WEB;
+A:
+  Set(__cid=${dnid});
+  Set(__dnid=${EXTEN});
+  Set(__from=transfer);
+  Set(tr=${cid});
+  NoOp(roman says 8: callerid(rdnis) ${CALLERID(RDNIS)});
+  goto WEB;
+  NoOp(maxx: transfer, end of _. extension);
+ }
+} // context transfer
