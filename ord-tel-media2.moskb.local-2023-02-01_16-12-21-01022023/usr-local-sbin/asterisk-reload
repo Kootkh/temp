@@ -1,7 +1,0 @@
-#!/bin/sh
-
-/bin/systemctl stop asterisk.service
-
-sleep 5
-
-/bin/systemctl start asterisk.service
