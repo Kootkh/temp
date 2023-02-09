@@ -1,0 +1,492 @@
+CREATE OR REPLACE FUNCTION public."CallLevelE"("DNID" text, cid text DEFAULT NULL::text, "Aliased" text DEFAULT ''::text, bind text DEFAULT NULL::text)
+ RETURNS TABLE("Level" smallint, "Action" text, "Note" text)
+ LANGUAGE plpgsql
+AS $function$
+/*
+ SUMMARY.
+ 1. new callevel system spreads region on exten object. 201 in spb, 202 in msk etc...
+ 2. new call levels list is including the level "zone + federall cellphones" as listed below.
+
+ 0 = aliaces
+    1 = internal
+    2 = partners
+ !!! - level 2 in all types of rhombus is marked as enterprise and is going thru the routing
+    3 = city
+    4 = zone
+    5 = zone + federall cellphones
+    6 = country
+    7 = international
+
+
+ note, that the engine only works in Russia, because it is based on the FAS code table. for use in another countries code tables are to fill manually.
+
+
+ 
+ */
+
+declare
+ "dnid" text;
+ E RECORD;
+ prefix_international text;
+ prefix_federal text;
+ prefix_country text;
+ prefix_e164 text;
+ prefix_dumb text;
+ prefix_city text;
+ extern_prefixed boolean;
+ length_city smallint;
+ length_zone smallint;
+ rhombus_type varchar(20);
+ i smallint;
+ pr text;
+begin
+
+ rhombus_type = (select "Value" from "CONST" where ("Name"='rhombus-type')  limit 1);
+ if ((rhombus_type is NULL) or (rhombus_type='')) then rhombus_type = 'telecom'; 
+ end if;
+
+ for E in (select * from "Exten" where (("Exten"."Exten" = "cid") or ("Exten"."Exten" = '!' || "cid") or ("Exten"."Exten" = 'n' || "cid") or (("Exten"."Exten" = '!') and ("BIND" = "bind"))) 
+ and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "Exten" DESC limit 1) loop
+ end loop;
+
+ --RAISE NOTICE 'record from db %', E;
+ 
+-- extern_prefix and unprefixed number
+if ((E."ExternPrefix" != '') and (substring("DNID" for length(E."ExternPrefix")) = E."ExternPrefix"))  then
+ RAISE NOTICE 'external prefix % detected, dnid % is prefixed, unprefixed dnid is %', E."ExternPrefix", "DNID", substring("DNID" from length(E."ExternPrefix") + 1);
+ "dnid" = substring("DNID" from length(E."ExternPrefix") + 1);
+ extern_prefixed = 'true';
+else
+ --RAISE NOTICE 'there is no external prefix on exten or dnid is not prefixed, analyzing dnid % as it is', "DNID";
+ extern_prefixed = 'false';
+ "dnid" = "DNID";
+end if;
+ 
+ "Level" = 0;
+ 
+-- Emergency
+ if ("DNID" = '112') then
+  E."CallLevel" = 3;
+  E."Enabled" = True;
+ end if;
+
+ -- Non-existent cid may appear on CallBack etc., so set the default
+ if (E is NULL) and NOT(("cid" is NULL) or ("cid" = '')) then
+  E."CallLevel" = 2;
+  E."Enabled" = True;
+  if ("bind" <> '') then
+   E."BIND" = "bind";
+  end if;
+ end if;
+
+ if (E."CallLevel" < 0) or NOT(E."Enabled") then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:-1';
+   RETURN next; return;
+ end if;
+
+-- EGRESS ALIAS
+
+--RAISE NOTICE 'before alias: Aliased %, Alias in record %', "Aliased", E."Alias";
+ if ("Aliased" = '') and NOT(E."Alias" is NULL) then
+ RAISE NOTICE 'inside alias: Aliased %, Alias in record %', "Aliased", E."Alias";
+  "Action" = 'alias,~~s~~,1(FAKE)';
+  if (E."Alias" != 'DISABLED') then
+   if exists(select "Aliases"."Exten" from "Aliases" where "Egress" and (("Aliases"."Exten" = "cid") or ("Aliases"."Exten" = E."Alias")) and ("Aliases"."Cell" = "dnid") and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) ) then
+    for E in (select ('alias,~~s~~,1(' || "Alias" || ',' ||
+                     CASE WHEN "Bypass" = False THEN '0)' ELSE '1)' END) as "A", "Alias"
+              from "Aliases" where "Egress" and (("Aliases"."Exten" = "cid") or ("Aliases"."Exten" = E."Alias")) and ("Aliases"."Cell" = "dnid") and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) ) loop
+    end loop;
+    "Action" = E."A";
+    "Note" = 'alias:local';
+    RETURN next; return;
+   end if;
+  end if;
+
+  if exists(select "Aliases"."Exten" from "Aliases" where "Egress" and ("Aliases"."Exten" = 'GLOBAL') and ("Aliases"."Cell" = "dnid") and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) ) then
+   for E in (select ('alias,~~s~~,1(' || "Alias" || ',' ||
+                    CASE WHEN "Bypass" = False THEN '0)' ELSE '1)' END) as "A", "Alias"
+             from "Aliases" where "Egress" and ("Aliases"."Exten" = 'GLOBAL') and ("Aliases"."Cell" = "dnid") and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) ) loop
+   end loop;
+   "Action" = E."A";
+   "Note" = 'alias:global';
+   RETURN next; return;
+  end if;
+ end if;
+
+ if ("Aliased" = '7') then
+  E."CallLevel" = 7;
+ end if;
+
+ if (E."CallLevel" < 1) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:0';
+   RETURN next; return;
+ end if;
+
+ "Level" = 1;
+-- FUNCTION
+ if exists(select * from "Func" where ((("Exten" = "dnid") or ("Exten" = 'ALL') or ((substring("Exten" for 1) = '~') and ("dnid" ~ substring("Exten" from 2)) ))
+                                   and (("CID" = "cid") or ("CID" = 'ALL') or ((substring("CID" for 1) = '~') and ("cid" ~ substring("CID" from 2)) ))
+                                   and ((E."BIND" is NULL) or ("BIND" is NULL) or ("BIND" = E."BIND")))
+          ) then
+  for E in (select ("Macro" || ',~~s~~,1(' ||
+                   CASE WHEN "P1" is NULL THEN ',' ELSE "P1" || ',' END ||
+                   CASE WHEN "P2" is NULL THEN ',' ELSE "P2" || ',' END ||
+                   CASE WHEN "P3" is NULL THEN ',' ELSE "P3" || ',' END ||
+                   CASE WHEN "P4" is NULL THEN ',' ELSE "P4" || ',' END ||
+                   CASE WHEN "P5" is NULL THEN ',' ELSE "P5" || ',' END ||
+                   CASE WHEN "P6" is NULL THEN ',' ELSE "P6" || ',' END ||
+                   CASE WHEN "P7" is NULL THEN ',' ELSE "P7" || ',' END ||
+                   CASE WHEN "P8" is NULL THEN ',' ELSE "P8" || ',' END ||
+                   CASE WHEN "P9" is NULL THEN ',' ELSE "P9" || ',' END ||
+                   CASE WHEN "P10" is NULL THEN ',' ELSE "P10" || ',' END ||
+                   CASE WHEN "P11" is NULL THEN ',' ELSE "P11" || ',' END ||
+                   CASE WHEN "P12" is NULL THEN ')' ELSE "P12" || ')' END) as "M", "Macro"
+            from "Func" where ((("Exten" = "dnid") or ("Exten" = 'ALL') or ((substring("Exten" for 1) = '~') and ("dnid" ~ substring("Exten" from 2)) ))
+                                   and (("CID" = "cid") or ("CID" = 'ALL') or ((substring("CID" for 1) = '~') and ("cid" ~ substring("CID" from 2)) ))
+                                   and ((E."BIND" is NULL) or ("BIND" is NULL) or ("BIND" = E."BIND")))
+            order by "BIND","CID","Exten" limit 1) loop
+  end loop;
+  "Action" = E."M";
+  "Note" = 'func:' || E."Macro";
+  RETURN next; return;
+ end if;
+ 
+ 
+--тут заканчивается одиссея всего на * и #
+
+ if (substring("dnid" for 1) = '*' or substring("dnid" for 1) = '#') then
+ RAISE NOTICE 'dnid is call to function % and cannot be non-local', "dnid";
+  "Action" = 'i,1()';
+  "Note" = 'error:non_existent_func';
+   RETURN next; return;
+ end if;
+ 
+
+
+-- EXTENSION
+ if exists(select * from "Exten" where ("Exten" = "dnid") and ((E."BIND" is NULL) or ("BIND" is NULL) or ("BIND" = E."BIND"))) then
+  for E in (select * from "Exten" where ("Exten" = "dnid") and ((E."BIND" is NULL) or ("BIND" is NULL) or ("BIND" = E."BIND")) order by "BIND" DESC, "Exten" DESC limit 1) loop
+  end loop;
+
+  if (E."CallLevel" < 0) or NOT(E."Enabled") then
+   "Action" = 'i,1()';
+   "Note" = 'restrict:-1';
+    RETURN next; return;
+  end if;
+
+  "Action" = 'exten,~~s~~,1(FAKE)';
+  "Note" = 'exten';
+  RETURN next; return;
+ end if;
+
+ if ("dnid" !~ '^[+]?[0-9]+$') then
+  if (E."CallLevel" > 7) then
+  "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',' || E."CallLevel" || ')';
+  "Note" = 'bypass:unknown';
+   RETURN next; return;
+  end if;
+
+  "Level" = -1;
+  "Action" = 'invalid-call,~~s~~,1(' || "dnid" || ')';
+  "Note" = 'error:non_e164';
+  RETURN next; return; -- NO DECISION
+ end if;
+
+ if (E."CallLevel" < 2) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:1';
+   RETURN next; return;
+ end if;
+
+ 
+ "Level" = 2;
+-- PEER
+ BEGIN
+  if exists(select * from "Friends" WHERE (cast("dnid" as bigint) between "FromExten" and "ToExten") and ((E."BIND" is NULL) or ("BIND" is NULL) or ("BIND" = E."BIND"))) then
+  "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',' || "Level" || ')';
+  "Note" = 'friend';
+   RETURN next; return;
+  end if;
+ EXCEPTION
+  WHEN OTHERS THEN
+--   return -1;
+ END;
+
+-- NEIGHBOR
+ 
+ if (rhombus_type='enterprise') then
+if exists(
+select "Exten","BIND" from "Func" full outer join "Exten" using ("Exten","BIND") where "Exten"="dnid" and ("BIND" <> "bind" or "BIND" is null) 
+) then
+--RAISE NOTICE 'after friends enterprise case: dnid % is found in another bind',dnid;
+"Note" = 'enterprise';
+"Level" = 2;
+"Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',2)';
+    RETURN next; return;
+end if;
+ end if;
+ 
+
+ if (E."CallLevel" < 3) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:2';
+   RETURN next; return;
+ end if;
+
+ if (E."CallLevel" = 99) then
+  "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',99)';
+  "Note" = 'bypass:99';
+   RETURN next; return;
+ end if;
+
+
+ 
+ prefix_federal = (select "Value" from "CONST" where ("Name"='prefix-federal') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (prefix_federal is NULL) then prefix_federal = '89'; end if;
+ prefix_country = (select "Value" from "CONST" where ("Name"='prefix-country') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (prefix_country is NULL) then prefix_country = '8'; end if;
+ prefix_e164 = (select "Value" from "CONST" where ("Name"='prefix-e164') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (prefix_e164 is NULL) then prefix_e164 = '+7'; end if;
+ prefix_dumb = (select "Value" from "CONST" where ("Name"='prefix-dumb') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (prefix_dumb is NULL) then prefix_dumb = '9'; end if;
+ prefix_city = (select "GetAreaCodes"(E."Region"));
+ if (prefix_city is NULL) then prefix_city = '812-800'; end if;
+ length_city = (select 10 - length("ABC"::text) from "Region" where "Area"=E."Region" limit 1); 
+ if (length_city is NULL) then length_city = '7'; end if;
+ length_zone = (select "Value" from "CONST" where ("Name"='length-zone') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (length_zone is NULL) then length_zone = '7'; end if;
+
+ prefix_international = (select "Value" from "CONST" where ("Name"='prefix-international') and (("bind" is NULL) or ("BIND" is NULL) or ("BIND" = "bind")) order by "BIND" NULLS LAST limit 1);
+ if (prefix_international is NULL) then prefix_international = '810'; end if;
+
+ "Level" = 3;
+
+ if (("dnid" = prefix_country) or ("dnid" = prefix_dumb)) and NOT(("cid" is NULL) or ("cid" = '')) then
+  "Action" = 'process_prefix,~~s~~,1()';
+  "Note" = 'process_prefix';
+  RETURN next; return;
+ end if;
+
+
+
+-- Try to test E.164  !!!
+ if ("dnid" ~ '^7[0-9]{10}$') then -- "country" e.164
+     "dnid" = '+' || "dnid";
+ end if;
+
+
+ if (substring("dnid" for 1) = '+') then
+   if (char_length("dnid") <= (char_length(prefix_e164)+length_city)) then -- санация. точно что-то недонабрали
+     "Level" = -1;
+     "Action" = 'invalid-call,~~s~~,1(' || "dnid" || ')';
+     "Note" = 'error:non_e164:length';
+     RETURN next; return;
+   end if;
+
+
+   if (select "GetABC"("dnid"::bigint) in ('','ERROR')) then
+     "dnid" = prefix_international || substring("dnid" from char_length(prefix_e164));
+   else
+     if (substring("dnid" for char_length(prefix_e164)) = prefix_e164) then  -- Somewhere inside country
+       "dnid" = prefix_country || substring("dnid" from char_length(prefix_e164)+1);
+     else
+       "dnid" = prefix_international || substring("dnid" from char_length(prefix_e164)+1);
+     end if;
+   end if;
+ end if;
+
+-- CITY
+ -- Do this stuff for local extensions only!
+ if (char_length("dnid") = length_city + 3) and (substring("dnid" for 1) != '+')
+     and NOT(("cid" is NULL) or ("cid" = '')) then
+  "dnid" = prefix_country || "dnid";
+ end if;
+
+ "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',3)';
+
+--убираем тип ромба нафиг и делаем энтерпрайз всем
+
+ if (substring("dnid" for char_length(prefix_country)) = prefix_country) then
+  i = 1;
+  while (i > 0) loop
+   pr = split_part(prefix_city,'-',i);
+   if (pr = '') then  i = -1; else
+    i = i + 1;
+    if (substring("dnid" from char_length(prefix_country)+1 for char_length(pr)) = pr) then
+     "Note" = 'city:prefix';
+     RETURN next; return;
+    end if;
+   end if;
+  end loop;
+ else
+  if (char_length("dnid") <= length_city) then
+   if (not(E."ServiceList" is NULL)) then
+    if ((char_length("dnid") = length_city) or (select "CheckPrefix"(E."ServiceList", "dnid" ))) then
+     "Note" = 'city+services';
+     RETURN next; return;
+    else 
+  if (extern_prefixed = 'false') then
+   "Note" = 'enterprise';
+   "Level" = 2;
+   "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',2)';
+  else
+   "Level" = -1;
+   "Action" = 'invalid-call,~~s~~,1(' || "dnid" || ')';
+   "Note" = 'error:city';
+  end if;
+     RETURN next; return;
+     end if;
+    end if; 
+   else 
+    "Note" = 'city';
+    RETURN next; return;
+   end if; 
+  end if;
+
+RAISE NOTICE 'after enterpise: E %',E;
+-- тут конец энтерпрайза
+  
+ if (E."CallLevel" < 4) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:3';
+   RETURN next; return;
+ end if;
+ 
+ 
+ "Level" = 4;
+ "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',4)';
+-- DEF LOCAL ZONE
+ if (substring("dnid" for char_length(prefix_federal)) = prefix_federal) then
+  if (char_length("dnid") = (char_length(prefix_country) + 3 + length_zone)) then
+
+  -- region is exactly as in FAS table!
+
+  -- if (select "IsInZone"(E."Region"::text, substring("dnid" from (char_length(prefix_country) + 1) for 3), substring("dnid" from char_length(prefix_country) + 4))) then
+  if (select "InZone"(cast(split_part(prefix_city, '-', 1) as smallint), cast(substring("dnid" from (char_length(prefix_country) + 1) for 3) as smallint), cast(substring("dnid" from char_length(prefix_country) + 4) as int))) then
+
+   "Note" = 'city:def';
+    RETURN next; return;
+   end if;
+  end if;
+ end if;
+
+ if (E."CallLevel" < 5) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:4';
+   RETURN next; return;
+ end if;
+
+ "Level" = 5;
+ "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',5)';
+
+ -- DEF OTHER ZONES FOR EXTEN
+
+
+ -- тут у нас новорожденный 5-й уровень - зона + все сотовые.
+
+
+ if (not(E."ZoneList" is NULL)) then
+  if (select "InZoneList"(E."ZoneList", cast(substring("dnid" from (char_length(prefix_country) + 1) for 3) as smallint), cast(substring("dnid" from char_length(prefix_country) + 4) as bigint))) then
+   "Note" = 'country:def';
+   RETURN next; return;
+  end if;
+ end if;
+
+
+ if (("dnid" ~ '^(89|\\+79)[0-9]{9}$')) then -- "def:country" решение только для России, но...
+   if exists(select * from "ABC" where "ABC"=cast(substring(substring("dnid" from char_length("dnid") - 9) from 1 for 3) as smallint) and cast(substring("dnid" from char_length("dnid") - 6) as bigint) between "From" and "To") then
+   "Note" = 'country:def';
+   RETURN next; return;
+  end if;
+
+ end if;
+
+ if (E."CallLevel" < 6) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:5';
+   RETURN next; return;
+ end if;
+
+
+-- тут начинаем  межгород. level 6
+
+ "Level" = 6;
+ "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',6)';
+
+
+
+ if (substring("dnid" for char_length(prefix_international)) != prefix_international) then
+-- COUNTRY
+  if (substring("dnid" for char_length(prefix_country)) = prefix_country) then
+
+   if (E."CallLevel" < 6) AND NOT exists(select * from "ABC" where ("ABC"."Area" = 7)
+            and ("ABC"."ABC" = substring("dnid"::text from 2 for 3)::smallint)
+            and ("ABC"."From" <= substring("dnid"::text from 5)::int)
+            and ("ABC"."To">= substring("dnid"::text from 5)::int) ) then
+
+    "Level" = -1;
+    "Action" = 'i,1()';
+    "Note" = 'error:abcdef';
+     RETURN next; return;
+   end if;
+
+
+-- надо будет переделать PrefixList5 в PrefixList6, но мы не пользуемся префикслистами
+
+
+   if (not(E."PrefixList5" is NULL)) then
+    if (select "CheckPrefix"(E."PrefixList5", substring("dnid" from (char_length(prefix_country) + 1)))) then
+    "Note" = 'country:prefix';
+     RETURN next; return;
+    end if;
+   else
+    "Note" = 'country';
+     RETURN next; return;
+   end if;
+   else
+    if (E."CallLevel" > 7) then -- Bypass
+    "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',' || E."CallLevel" || ')';
+    "Note" = 'bypass:country';
+     RETURN next; return;
+    end if;
+    "Level" = -1;
+    "Action" = 'invalid-call,~~s~~,1(' || "dnid" || ')';
+    "Note" = 'error:country';
+    RETURN next; return;
+  end if;
+ else
+
+ if (E."CallLevel" < 7) then
+  "Action" = 'i,1()';
+  "Note" = 'restrict:6';
+   RETURN next; return;
+ end if;
+
+ "Level" = 7;
+ "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',7)';
+-- INTERNATIONAL
+  if (not(E."PrefixList6" is NULL)) then
+   if (select "CheckPrefix"(E."PrefixList6", substring("dnid" from (char_length(prefix_international) + 1)))) then
+    "Note" = 'world:prefix';
+    RETURN next; return;
+   end if;
+  else
+    "Note" = 'world';
+  
+  end if;
+ end if;
+
+  if (E."CallLevel" > 7) then -- Bypass
+  "Action" = 'RouteCall,~~s~~,1(' || "dnid" || ',' || E."CallLevel" || ')';
+  "Note" = 'bypass:world';
+   RETURN next; return;
+  end if;
+ "Level" = -1;
+ "Action" = 'invalid-call,~~s~~,1(' || "dnid" || ')';
+ "Note" = 'error:world';
+-- NO DECISION
+ RETURN next; return;
+end;
+$function$
